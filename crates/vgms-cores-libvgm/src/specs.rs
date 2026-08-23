@@ -197,18 +197,20 @@ chip_specs! {
     // rows start the one emulator. `every_alternate_row_starts_a_distinct_core`
     // pins that they differ.
 
-    // x4 by the same staging the default was measured against: the sweep read
-    // the chip's default (Nuked-PSG, its own row in vgms-cores-gpl) at lvl
-    // 0.247 vs the reference, and the agreement run puts these two at medians
-    // 1.10 / 1.12 of that default -- gross level shared, so the x4 rides
-    // along. Their residual 10-12% scatters 1.5x across files (the noise
-    // band) and is left uncorrected deliberately; the round 1024 is VGMPlay's
-    // staging (0x80 doubled twice = 2.0) over the survey's raw-half note
-    // ("their SN76489 measured 2x off the table derivation").
+    // Anchored to the chip's default (Nuked-PSG, its own row in vgms-cores-gpl):
+    // the agreement run put these two at medians 1.10 / 1.12 of that default, so
+    // at the shared 1024 libvgm rendered audibly louder than the default. The
+    // owner hears the Nuked-PSG level as the correct one, so bring the median
+    // onto it: 1024 / 1.10 = 931 (Maxim), 1024 / 1.12 = 914 (MAME). The residual
+    // still scatters ~1.5x per file (0.83..1.31 after the scale) -- a scalar
+    // fixes the median, not the swing -- but the median now matches the default
+    // instead of sitting a tenth above it. The old 1024 was VGMPlay's staging
+    // (0x80 doubled twice = 2.0) over the survey's raw-half note ("their SN76489
+    // measured 2x off the table derivation").
     make_sn76489: "sn76489.libvgm" / "libvgm (Maxim)" => Sn76489,
-        ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], 1024, configure_sn76496;  // x4 with the default; median 1.10 of it (n=12, 0.91..1.44)
+        ffi::DEVID_SN76496, ffi::FCC_MAXM, WriteRule::Register, [0, 0], 931, configure_sn76496;  // 1024 / 1.10 -> matches the Nuked-PSG default (median 1.10 of it, n=12)
     make_sn76489_mame: "sn76489.libvgm-mame" / "libvgm (MAME)" => Sn76489,
-        ffi::DEVID_SN76496, ffi::FCC_MAME, WriteRule::Register, [0, 0], 1024, configure_sn76496;  // x4 with the default; median 1.12 of it (n=12, 0.94..1.46)
+        ffi::DEVID_SN76496, ffi::FCC_MAME, WriteRule::Register, [0, 0], 914, configure_sn76496;  // 1024 / 1.12 -> matches the Nuked-PSG default (median 1.12 of it, n=12)
     make_huc6280: "huc6280.libvgm" / "libvgm (Ootake)" => HuC6280,
         ffi::DEVID_C6280, ffi::FCC_OOTK, WriteRule::Register, [0, 0], 512, configure_none;  // measured 2.000 (lvl 0.500, corr 1.0000, n=12)
     make_huc6280_mame: "huc6280.libvgm-mame" / "libvgm (MAME)" => HuC6280,
