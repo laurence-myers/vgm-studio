@@ -47,6 +47,120 @@ struct Latch {
     index: usize,
 }
 
+/// Whether `chip` is an RF5C68/RF5C164, whose port-0 register file is
+/// channel-indirected and cannot be modelled by the flat latch map -- see
+/// [`RfChannels`].
+fn is_rf5c(chip: crate::vgm::ChipKind) -> bool {
+    use crate::vgm::ChipKind as K;
+    matches!(chip, K::Rf5c68 | K::Rf5c164)
+}
+
+/// RF5C register `0x07` bit 6: set selects a channel (`data & 0x07`), clear sets
+/// the RAM bank. Bit 7 is the chip's sound-enable, carried in the value either
+/// way.
+const RF5C_SELECT_BIT: u16 = 0x40;
+
+/// The channel-indirected port-0 register file of one RF5C68/RF5C164 instance.
+///
+/// Registers `0x00`-`0x06` (envelope, pan, frequency, loop, start address)
+/// address whichever of the eight channels register `0x07` (bit 6 set) last
+/// *selected*. The flat [`Cell`] map keys only by register, so it keeps a single
+/// channel's start address and lets the other seven fall back to their reset
+/// default of zero -- silence. Cutting a stream mid-song then reconstructs only
+/// the last-selected channel, which is why a seek into an RF5C164 track plays
+/// its hi-hat (the channel selected last) but drops the kick and snare until the
+/// loop restates them.
+///
+/// This keeps the last write to each `(channel, register)` pair, a select
+/// command to re-reach each channel, and the chip-wide bank, current channel and
+/// key-on mask. [`restore`](Self::restore) re-emits, per channel, a select then
+/// that channel's params, and the key-on `0x08` last of all -- so every
+/// channel's start address is in place before the key-on reloads its play cursor
+/// from it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct RfChannels {
+    /// The channel `0x00`-`0x06` writes currently address, tracked as `0x07`
+    /// selects go by.
+    cur_chan: u8,
+    /// The last write to each `(channel, register 0x00..=0x06)`.
+    params: BTreeMap<(u8, u8), Latch>,
+    /// A command that selects each channel (`0x07` bit 6 set), re-emitted before
+    /// that channel's params. Channel 0 may have none: a reset leaves the current
+    /// channel at 0 and channel 0 is restored first, so its params land without
+    /// one.
+    selects: BTreeMap<u8, usize>,
+    /// The last `0x07` with bit 6 clear -- the RAM bank and the enable bit.
+    bank: Option<Latch>,
+    /// The last `0x07` with bit 6 set -- the final current channel and enable.
+    select_ctrl: Option<Latch>,
+    /// The last `0x08` key-on mask.
+    key_on: Option<Latch>,
+}
+
+impl RfChannels {
+    /// Folds one port-0 register write. `reg` is `0x00`-`0x08`.
+    fn apply(&mut self, reg: u8, data: u16, index: usize) {
+        match reg {
+            0x07 => {
+                if data & RF5C_SELECT_BIT != 0 {
+                    self.cur_chan = (data & 0x07) as u8;
+                    self.selects.insert(self.cur_chan, index);
+                    self.select_ctrl = Some(Latch { value: data, index });
+                } else {
+                    self.bank = Some(Latch { value: data, index });
+                }
+            }
+            0x08 => self.key_on = Some(Latch { value: data, index }),
+            // 0x00..=0x06, the per-channel registers.
+            _ => {
+                self.params
+                    .insert((self.cur_chan, reg), Latch { value: data, index });
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.params.is_empty()
+            && self.bank.is_none()
+            && self.select_ctrl.is_none()
+            && self.key_on.is_none()
+    }
+
+    /// The command indices that reconstruct this register file from a reset chip.
+    ///
+    /// Per channel, in order: a select (so the params that follow land on it),
+    /// then that channel's `0x00`-`0x06`. Then the chip-wide bank and final
+    /// select, in the order they occurred so the later's enable bit wins, and the
+    /// key-on mask last -- after every start address is set, so keying a channel
+    /// on reloads it from the right place.
+    fn restore(&self) -> Vec<usize> {
+        let mut out = Vec::new();
+        for chan in 0u8..8 {
+            let params: Vec<usize> = (0u8..=0x06)
+                .filter_map(|reg| self.params.get(&(chan, reg)).map(|latch| latch.index))
+                .collect();
+            if params.is_empty() {
+                continue;
+            }
+            if let Some(&select) = self.selects.get(&chan) {
+                out.push(select);
+            }
+            out.extend(params);
+        }
+        let mut ctrl: Vec<usize> = [self.bank, self.select_ctrl]
+            .into_iter()
+            .flatten()
+            .map(|latch| latch.index)
+            .collect();
+        ctrl.sort_unstable();
+        out.extend(ctrl);
+        if let Some(latch) = self.key_on {
+            out.push(latch.index);
+        }
+        out
+    }
+}
+
 /// The chips' state after some span of a stream.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChipState {
@@ -61,6 +175,10 @@ pub struct ChipState {
     dac_stream: BTreeMap<(u8, u8), usize>,
     /// The last `0xE0` seek, if the PCM bank position was moved.
     seek: Option<usize>,
+    /// The channel-indirected RF5C68/RF5C164 register files, keyed by chip and
+    /// instance. Their port-0 registers cannot ride in [`latches`](Self::latches)
+    /// -- see [`RfChannels`]. Port-1 (RAM) writes still do, one cell per address.
+    rf: BTreeMap<(crate::vgm::ChipKind, u8), RfChannels>,
 }
 
 impl ChipState {
@@ -86,6 +204,17 @@ impl ChipState {
             return;
         };
         match command {
+            // The RF5C's port-0 register file is channel-indirected, so it goes
+            // to its own per-instance state; its port-1 (RAM) writes are ordinary
+            // per-address cells and fall through to the flat map.
+            VgmCommand::Write { target, addr, data }
+                if is_rf5c(target.kind) && target.port == 0 && addr <= 0x08 =>
+            {
+                self.rf
+                    .entry((target.kind, target.instance))
+                    .or_default()
+                    .apply(addr as u8, data, index);
+            }
             VgmCommand::Write { target, addr, data } => {
                 self.latches.insert(
                     Cell {
@@ -122,7 +251,9 @@ impl ChipState {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.latches.is_empty() && self.blocks.is_empty()
+        self.latches.is_empty()
+            && self.blocks.is_empty()
+            && self.rf.values().all(RfChannels::is_empty)
     }
 
     /// The command indices whose bytes reproduce this state from silence.
@@ -143,6 +274,13 @@ impl ChipState {
         out.extend(streams);
 
         out.extend(self.seek);
+
+        // The RF5C register files last: their key-on has to follow every start
+        // address, including the port-1 RAM writes above, so a keyed channel
+        // reloads from data that is already in place.
+        for rf in self.rf.values() {
+            out.extend(rf.restore());
+        }
         out
     }
 
@@ -187,6 +325,16 @@ impl ChipState {
 
         if self.seek != earlier.seek {
             out.extend(self.seek);
+        }
+
+        // An RF5C register file whose state the removed span changed is carried
+        // in full: its channels are interdependent (a select reaches the params
+        // that follow it), so re-emitting the whole file is both correct and, on
+        // a chip written this densely, no larger than a real diff would be.
+        for (key, rf) in &self.rf {
+            if earlier.rf.get(key) != Some(rf) {
+                out.extend(rf.restore());
+            }
         }
         out
     }
@@ -483,6 +631,130 @@ mod tests {
         ]);
         let state = ChipState::fold(&s, s.len());
         assert_eq!(state.restore_indices(), [0, 1, 2]);
+    }
+
+    // -- the RF5C's channel-indirected register file --------------------------
+
+    /// The bug this fixes: an RF5C's `0x00`-`0x06` registers address whichever
+    /// channel `0x07` last selected, so a flat "last write per register" keeps
+    /// only the last-selected channel's start address and the rest fall silent.
+    /// Every channel's start address must survive the fold, and the restore must
+    /// re-emit each after its own select, with the key-on last.
+    #[test]
+    fn an_rf5c_fold_keeps_every_channels_start_address() {
+        // 0xB1 is the RF5C164 register write. Select each channel, give it a
+        // distinct start address (register 0x06), then key channels 0-2 on.
+        let s = stream(vec![
+            0xB1,
+            0x07,
+            0x40, // 0: select channel 0
+            0xB1,
+            0x06,
+            0x10, // 1: ch0 start = 0x10
+            0xB1,
+            0x07,
+            0x41, // 2: select channel 1
+            0xB1,
+            0x06,
+            0x20, // 3: ch1 start = 0x20
+            0xB1,
+            0x07,
+            0x42, // 4: select channel 2
+            0xB1,
+            0x06,
+            0x30, // 5: ch2 start = 0x30
+            0xB1,
+            0x08,
+            0x07, // 6: key channels 0-2 on
+            END_OF_DATA,
+        ]);
+        let state = ChipState::fold(&s, s.len());
+        let rf = state
+            .rf
+            .get(&(ChipKind::Rf5c164, 0))
+            .expect("an RF5C164 register file");
+        assert_eq!(rf.params.get(&(0, 0x06)).map(|l| l.value), Some(0x10));
+        assert_eq!(rf.params.get(&(1, 0x06)).map(|l| l.value), Some(0x20));
+        assert_eq!(
+            rf.params.get(&(2, 0x06)).map(|l| l.value),
+            Some(0x30),
+            "all three channels' starts are kept, not just the last"
+        );
+
+        // Every channel's start (indices 1, 3, 5) comes back, and the key-on
+        // (index 6) is last so it reloads each channel from a start already set.
+        let restore = state.restore_indices();
+        for start in [1usize, 3, 5] {
+            assert!(
+                restore.contains(&start),
+                "channel start at {start} restored"
+            );
+        }
+        assert_eq!(restore.last(), Some(&6), "the key-on follows every start");
+    }
+
+    /// Replaying an RF5C restore leaves each channel exactly where the discarded
+    /// span did -- the fold-equivalence property for the channel-indirected file.
+    /// Indices differ between the source and the replayed prelude, so the check
+    /// is on the values each channel holds.
+    #[test]
+    fn an_rf5c_restore_folds_back_to_each_channels_state() {
+        let s = stream(vec![
+            0xB1,
+            0x07,
+            0xC0, // select channel 0, enabled (bit 7)
+            0xB1,
+            0x06,
+            0x11, // ch0 start
+            0xB1,
+            0x00,
+            0x0F, // ch0 envelope
+            0xB1,
+            0x07,
+            0xC3, // select channel 3, enabled
+            0xB1,
+            0x06,
+            0x44, // ch3 start
+            0xB1,
+            0x01,
+            0x80, // ch3 pan
+            0xB1,
+            0x07,
+            0x0F, // bank select (bit 6 clear), enabled
+            0xB1,
+            0x08,
+            0x09, // key channels 0 and 3 on
+            END_OF_DATA,
+        ]);
+        // The values a register file holds, index-independent.
+        let values = |rf: &RfChannels| {
+            (
+                rf.params
+                    .iter()
+                    .map(|(key, latch)| (*key, latch.value))
+                    .collect::<BTreeMap<_, _>>(),
+                rf.bank.map(|l| l.value),
+                rf.select_ctrl.map(|l| l.value),
+                rf.key_on.map(|l| l.value),
+            )
+        };
+        for upto in 0..=s.len() {
+            let state = ChipState::fold(&s, upto);
+            let prelude = stream({
+                let mut bytes = ChipState::bytes_for(&s, &state.restore_indices());
+                bytes.push(END_OF_DATA);
+                bytes
+            });
+            let replayed = ChipState::fold(&prelude, prelude.len());
+            let key = (ChipKind::Rf5c164, 0);
+            match state.rf.get(&key) {
+                Some(rf) => {
+                    let back = replayed.rf.get(&key).expect("rf present after replay");
+                    assert_eq!(values(back), values(rf), "rf values at {upto}");
+                }
+                None => assert!(replayed.rf.get(&key).is_none_or(RfChannels::is_empty)),
+            }
+        }
     }
 
     // -- diffing two states --------------------------------------------------
