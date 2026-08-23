@@ -224,6 +224,29 @@ impl VgmFile {
         self.header.chip_list()
     }
 
+    /// The widest chip label the instruction table could show for this file,
+    /// used to size the "Chip" column so a name never wraps.
+    ///
+    /// Built from the declared chips: each part name, its `#2` second-instance
+    /// suffix where a second instance is present, plus headroom for the ` p1`
+    /// port suffix a banked chip's rows carry (allowed for unconditionally so
+    /// the column never has to grow when such a row scrolls into view).
+    #[must_use]
+    pub fn widest_chip_label(&self) -> Option<String> {
+        self.header
+            .chips()
+            .iter()
+            .map(|chip| {
+                let mut label = chip.kind.name().to_owned();
+                if chip.dual {
+                    label.push_str(" #2");
+                }
+                label.push_str(" p1");
+                label
+            })
+            .max_by_key(String::len)
+    }
+
     /// Whether the OPL editor could open this file instead.
     ///
     /// True does not promise the editor *will* succeed -- the command stream

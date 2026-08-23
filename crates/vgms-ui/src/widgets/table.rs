@@ -58,12 +58,26 @@ pub(crate) fn show(
     let bar_width = ui.spacing().scroll.bar_width;
     let header_height = row_height + 2.0;
 
+    // Size the chip column to the widest label the file can show, so a name like
+    // "YM2612 #2 p1" never wraps as it scrolls in. OPL bank rows keep the narrow
+    // default (`widest_chip_label` returns `None` for them).
+    let second_col_min = editor.widest_chip_label().map_or(40.0, |label| {
+        let mono = egui::TextStyle::Monospace.resolve(ui.style());
+        let text_w = ui.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(label, mono, Color32::PLACEHOLDER)
+                .size()
+                .x
+        });
+        (text_w + 8.0).ceil()
+    });
+
     let mut builder = TableBuilder::new(ui)
         .striped(true)
         .resizable(true)
         .sense(Sense::click())
         .column(Column::auto().at_least(50.0)) // Pos.
-        .column(Column::auto().at_least(40.0)) // Bank
+        .column(Column::auto().at_least(second_col_min)) // Chip / Bank
         .column(Column::auto().at_least(45.0)) // Reg.
         .column(Column::auto().at_least(80.0)) // Value
         .column(Column::remainder().at_least(120.0)) // Description (all options on hover)
@@ -147,6 +161,13 @@ fn cell(row: &mut egui_extras::TableRow<'_, '_>, text: String, color: Option<Col
         if let Some(color) = color {
             rich = rich.color(color);
         }
-        ui.add(egui::Label::new(rich).selectable(false));
+        // Rows are a fixed height, so a wrapped cell spills into a clipped second
+        // line -- keep these single-token cells on one line (they extend, and the
+        // column is sized to fit) rather than wrapping awkwardly.
+        ui.add(
+            egui::Label::new(rich)
+                .selectable(false)
+                .wrap_mode(egui::TextWrapMode::Extend),
+        );
     });
 }

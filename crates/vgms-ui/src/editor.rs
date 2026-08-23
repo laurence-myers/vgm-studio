@@ -1072,6 +1072,17 @@ impl Editor {
         self.vgm.as_ref().is_some_and(|file| !file.is_opl())
     }
 
+    /// The widest chip label the table's second column must fit, or `None` when
+    /// the document shows OPL bank rows (a bank index needs no such sizing, so
+    /// the column keeps its narrow default).
+    #[must_use]
+    pub fn widest_chip_label(&self) -> Option<String> {
+        if !self.shows_chip_rows() {
+            return None;
+        }
+        self.vgm.as_ref()?.widest_chip_label()
+    }
+
     /// What the instruction table's five columns are called for the loaded
     /// document. Only the second differs: an OPL song's rows have a bank, and
     /// rows for other chips name the chip they write to.
