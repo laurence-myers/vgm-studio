@@ -156,14 +156,26 @@ impl ChipCore for Ym2612 {
     fn write(&mut self, port: u8, addr: u16, data: u16) {
         // The DAC-enable register, sniffed on the way past: the mute gate
         // needs to know whose sound sits in channel 6's slot.
-        if port & 1 == 0 && addr & 0xFF == 0x2B {
+        let reg = (addr & 0xFF) as u8;
+        if port & 1 == 0 && reg == 0x2B {
             self.dac_enabled = data & 0x80 != 0;
         }
         // Ports are 0 and 1 on the chip; upstream numbers the address and data
         // halves of each as 0/1 and 2/3.
         let base = u32::from(port & 1) * 2;
-        self.writes
-            .push(base, (addr & 0xFF) as u8, (data & 0xFF) as u8);
+        let value = (data & 0xFF) as u8;
+        // The DAC data port (port 0, register 0x2A) is a sample latch: a run of
+        // writes made in one instant (a file that dumps its PCM as a single
+        // zero-delay batch before the first wait) must collapse to the last
+        // value, or the queue drains them one-per-rotation and plays that
+        // instant back stretched across real time -- the startup fast-burst on
+        // Genesis rips like "Pocket Monster 2". Every other register, key-on
+        // included, must queue in full.
+        if port & 1 == 0 && reg == 0x2A {
+            self.writes.push_collapsing(base, reg, value);
+        } else {
+            self.writes.push(base, reg, value);
+        }
     }
 
     fn render(&mut self, out: &mut [i32]) {
@@ -526,6 +538,34 @@ mod tests {
         // reason the exclusion stays whatever this shows.
         let repeated_dac = with_repeat(Some((0x2A, 0x80)));
         assert_eq!(repeated_dac.len(), no_repeat.len());
+    }
+
+    /// A file that front-loads its PCM as one zero-delay batch (the "Pocket
+    /// Monster 2" Genesis rips) must not play that instant back stretched across
+    /// real time: the DAC data port collapses a zero-time run to its last value.
+    /// Key on/off at one instant, by contrast, must both survive -- so only the
+    /// DAC port collapses.
+    #[test]
+    fn a_zero_time_dac_run_collapses_but_control_writes_do_not() {
+        let mut dac = Ym2612::new();
+        dac.reset(MD_CLOCK, false);
+        // A DAC batch with no render (no time) between the writes.
+        for byte in 0..64u16 {
+            dac.write(0, 0x2A, byte);
+        }
+        assert_eq!(
+            dac.pending(),
+            1,
+            "a zero-time DAC run collapses to its last value, not a backlog"
+        );
+
+        // Key off then key on at the same instant is a retrigger; collapsing it
+        // would drop the off. The DAC-only rule must leave it in full.
+        let mut keys = Ym2612::new();
+        keys.reset(MD_CLOCK, false);
+        keys.write(0, 0x28, 0x00);
+        keys.write(0, 0x28, 0xF0);
+        assert_eq!(keys.pending(), 2, "key off/on must both survive");
     }
 
     /// The gain sets the FM-to-PSG balance, pinned rather than left to drift.

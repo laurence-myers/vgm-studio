@@ -71,6 +71,30 @@ impl WriteQueue {
         self.queue.push_back((port, address, value));
     }
 
+    /// Queues a write, collapsing it into the write already at the back of the
+    /// queue when that write targets the same register.
+    ///
+    /// For a data latch like the YM2612's DAC port, a driver can make a run of
+    /// writes in zero chip-time (a file that front-loads its PCM as one batch
+    /// before the first delay). Queued in full they drain one register per
+    /// rotation, spreading a single instant's worth of samples across real
+    /// output time -- an audible fast burst until the backlog clears. Collapsing
+    /// keeps only the last, exactly as a chip applying writes immediately would.
+    ///
+    /// Only safe for a register whose sole state is its latched value; a control
+    /// register like key-on, where an off then an on at one instant both matter,
+    /// must go through [`push`](Self::push) so the pair survives.
+    pub fn push_collapsing(&mut self, port: u32, address: u8, value: u8) {
+        if let Some(back) = self.queue.back_mut()
+            && back.0 == port
+            && back.1 == address
+        {
+            back.2 = value;
+            return;
+        }
+        self.queue.push_back((port, address, value));
+    }
+
     /// Forgets everything pending. A seek must not deliver writes the song made
     /// before it.
     pub fn clear(&mut self) {
@@ -177,6 +201,29 @@ mod tests {
         let mut queue = WriteQueue::new(0, 0);
         queue.push(2, 0x30, 0x01);
         assert_eq!(run(&mut queue, 2), [(2, 0x30), (3, 0x01)]);
+    }
+
+    /// A collapsing push folds a run to one entry when it hits the same register
+    /// back-to-back, but leaves a different register (or a break in the run)
+    /// alone -- so a zero-time DAC batch becomes its last value while distinct
+    /// writes still all arrive.
+    #[test]
+    fn push_collapsing_folds_a_repeated_register_but_not_a_broken_run() {
+        let mut queue = WriteQueue::new(0, 21);
+        for value in 0..50u8 {
+            queue.push_collapsing(0, 0x2A, value);
+        }
+        assert_eq!(queue.pending(), 1, "a back-to-back run folds to one entry");
+        let written = run(&mut queue, 2);
+        assert_eq!(written, [(0, 0x2A), (1, 49)], "and keeps the last value");
+
+        // A register write between two collapsing writes breaks the run, so both
+        // DAC values survive around it.
+        let mut mixed = WriteQueue::new(0, 21);
+        mixed.push_collapsing(0, 0x2A, 0x10);
+        mixed.push(0, 0x28, 0xF0);
+        mixed.push_collapsing(0, 0x2A, 0x20);
+        assert_eq!(mixed.pending(), 3, "a broken run is not collapsed across");
     }
 
     /// A run must be delayed, never dropped -- and a seek must drop it all.
