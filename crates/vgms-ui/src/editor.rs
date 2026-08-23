@@ -18,6 +18,10 @@ use crate::markers::RangeMarkers;
 use crate::platform::PickedFile;
 use crate::selection::Selection;
 
+pub(crate) mod fold;
+use fold::{FoldKind, FoldMap};
+pub(crate) use fold::{FoldSummary, VisibleRow};
+
 /// What the undo stack calls a crop. The two region edits share one entry
 /// point, and this is how it tells them apart.
 const CROP_DESCRIPTION: &str = "Crop to Marked Region";
@@ -202,6 +206,10 @@ pub struct Editor {
     /// own. Metadata edits are not undoable, so it only ever clears on a save or
     /// a fresh song.
     metadata_dirty: bool,
+    /// The instruction table's folding view. Rebuilt lazily by
+    /// [`Self::ensure_folds`] whenever the document's length has changed since it
+    /// was last built, so it always matches what is loaded.
+    fold: FoldMap,
 }
 
 impl Editor {
@@ -1083,6 +1091,63 @@ impl Editor {
         self.vgm.as_ref()?.widest_chip_label()
     }
 
+    /// The foldable category of instruction `index`: a delay, a DAC write, or
+    /// `None` for a register write (or anything else that never folds).
+    fn fold_kind(&self, index: usize) -> Option<FoldKind> {
+        if let Some(file) = self.vgm.as_ref() {
+            return match file.stream()?.get(index)? {
+                VgmCommand::Wait(_) => Some(FoldKind::Wait),
+                VgmCommand::DacWrite { .. } => Some(FoldKind::Dac),
+                _ => None,
+            };
+        }
+        match self.dro.as_ref()?.instruction(index)? {
+            Instruction::DelayMs { .. } | Instruction::DelaySamples { .. } => Some(FoldKind::Wait),
+            _ => None,
+        }
+    }
+
+    /// Rebuilds the folding view when a document change has left it stale. Cheap
+    /// to call every frame: it only walks the stream when the row count differs
+    /// from the last build.
+    pub(crate) fn ensure_folds(&mut self) {
+        let len = self.len();
+        if !self.fold.is_current_for(len) {
+            self.fold = FoldMap::build(len, |index| self.fold_kind(index));
+        }
+    }
+
+    /// How many rows the table draws (folded runs count as one, or one plus their
+    /// length when expanded). Call [`Self::ensure_folds`] first.
+    #[must_use]
+    pub(crate) fn visible_len(&self) -> usize {
+        self.fold.visible_len()
+    }
+
+    /// What visible row `visible` shows -- an instruction or a fold summary.
+    #[must_use]
+    pub(crate) fn visible_row(&self, visible: usize) -> Option<VisibleRow> {
+        self.fold.row_at(visible)
+    }
+
+    /// The visible row that shows instruction `index` (its own row, or the
+    /// summary of the collapsed fold hiding it), for scrolling it into view.
+    #[must_use]
+    pub(crate) fn visible_of(&self, index: usize) -> usize {
+        self.fold.visible_of(index)
+    }
+
+    /// Toggles the fold whose summary is at visible row `visible`.
+    pub(crate) fn toggle_fold(&mut self, visible: usize) {
+        self.fold.toggle(visible);
+    }
+
+    /// Expands the fold hiding instruction `index`, so a jump to it lands on a
+    /// visible row rather than on the summary that was covering it.
+    pub(crate) fn reveal(&mut self, index: usize) {
+        self.fold.reveal(index);
+    }
+
     /// What the instruction table's five columns are called for the loaded
     /// document. Only the second differs: an OPL song's rows have a bank, and
     /// rows for other chips name the chip they write to.
@@ -1223,7 +1288,7 @@ impl Editor {
 mod tests {
     use super::*;
     use crate::selection::ClickModifiers;
-    use crate::test_song::{bogus_leading_delay_song, dro_song_v2, tone_song};
+    use crate::test_song::{bogus_leading_delay_song, dro_song_v2, folding_vgm, tone_song};
 
     fn picked(song: &DroSong) -> PickedFile {
         PickedFile {
@@ -1250,6 +1315,35 @@ mod tests {
         let mut editor = Editor::new();
         let report = editor.load(picked).unwrap();
         (editor, report)
+    }
+
+    /// A run of same-kind commands folds to a summary row in the table, and
+    /// clicking it (via `toggle_fold`) reveals the run again -- the whole point
+    /// of the feature, exercised through the editor the way the table drives it.
+    #[test]
+    fn a_run_of_waits_folds_into_a_summary_row() {
+        let (mut editor, _) = loaded_vgm(&folding_vgm());
+        editor.ensure_folds();
+        let len = editor.len();
+        assert!(
+            editor.visible_len() < len,
+            "the wait run collapses the table"
+        );
+
+        let (visible, summary) = (0..editor.visible_len())
+            .find_map(|row| match editor.visible_row(row) {
+                Some(VisibleRow::Summary(summary)) => Some((row, summary)),
+                _ => None,
+            })
+            .expect("a fold summary row");
+        assert_eq!(summary.len, 6, "the six waits fold together");
+        assert_eq!(summary.start, 2, "the run starts after the two writes");
+        assert!(!summary.expanded, "runs collapse by default");
+
+        // Expanding shows the six waits under the summary.
+        let collapsed = editor.visible_len();
+        editor.toggle_fold(visible);
+        assert_eq!(editor.visible_len(), collapsed + 6, "the run reappears");
     }
 
     #[test]

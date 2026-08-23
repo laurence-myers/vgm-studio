@@ -134,6 +134,21 @@ pub(crate) fn redundant_vgm_file() -> VgmFile {
     vgms_core::vgm::file::read("redundant.vgm", &redundant_vgm_bytes()).unwrap()
 }
 
+/// An OPL2 VGM with a run of six consecutive waits between register writes, so
+/// the instruction table's folding has a run to collapse.
+pub(crate) fn folding_vgm() -> VgmFile {
+    let bytes = assemble_opl2_vgm(
+        "fold.vgm",
+        &[
+            0x5A, 0x20, 0x01, // write (index 0)
+            0x5A, 0x40, 0x10, // write (index 1)
+            0x70, 0x70, 0x70, 0x70, 0x70, 0x70, // six waits (indices 2..=7)
+            0x5A, 0xB0, 0x31, // write (index 8)
+        ],
+    );
+    vgms_core::vgm::file::read("fold.vgm", &bytes).unwrap()
+}
+
 /// An OPL2 VGM standing in for a whole sound-test session logged in one file:
 /// three short "songs" parted by two one-second (44100-sample) silent gaps, well
 /// over the 0.75 s default split threshold. Each song sets a distinct register

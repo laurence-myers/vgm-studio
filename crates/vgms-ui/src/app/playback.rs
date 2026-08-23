@@ -192,6 +192,7 @@ impl VgmStudioApp {
         };
         match found {
             Some(index) => {
+                self.editor.reveal(index);
                 self.editor.selection.select_only(index);
                 self.scroll_to = Some(table::ScrollTo::centered(index));
             }
@@ -217,6 +218,7 @@ impl VgmStudioApp {
                 self.status = crate::strings::app_status_goto_out_of_range(position);
             }
             Ok(position) => {
+                self.editor.reveal(position);
                 self.editor.selection.select_only(position);
                 self.scroll_to = Some(table::ScrollTo::centered(position));
                 self.status = crate::strings::app_status_goto_gone(position);
@@ -242,6 +244,7 @@ impl VgmStudioApp {
         };
         match found {
             Some(index) => {
+                self.editor.reveal(index);
                 self.editor.selection.select_only(index);
                 self.scroll_to = Some(table::ScrollTo::centered(index));
                 self.status = crate::strings::app_status_find_found(&label, index);

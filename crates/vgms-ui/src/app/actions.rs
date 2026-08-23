@@ -610,6 +610,9 @@ impl VgmStudioApp {
             .selection
             .key_move(delta, extend, self.editor.len())
         {
+            // Stepping into a folded run expands it, so the moved selection stays
+            // on a row the user can see rather than vanishing under a summary.
+            self.editor.reveal(row);
             self.scroll_to = Some(table::ScrollTo::centered(row));
         }
     }
@@ -626,6 +629,7 @@ impl VgmStudioApp {
     }
 
     fn on_waveform_clicked(&mut self, index: usize, ms: u32) {
+        self.editor.reveal(index);
         self.editor.selection.select_only(index);
         // Bring the table to where playback would start, that row at the
         // top: the click says "play from here", so what follows it is

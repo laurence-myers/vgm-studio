@@ -570,6 +570,10 @@ pub(crate) const SETTINGS_TAIL_LENGTH_HOVER: &str =
 pub(crate) const SETTINGS_THEME_HOVER: &str = "The case colour.";
 pub(crate) const SETTINGS_PAD_STYLE_HOVER: &str = "The keycap colour.";
 pub(crate) const SETTINGS_INVALID_TITLE: &str = "Invalid settings";
+
+/// Hover text on a folded run's summary row in the instruction table.
+pub(crate) const TABLE_FOLD_EXPAND: &str = "Show this run of commands";
+pub(crate) const TABLE_FOLD_COLLAPSE: &str = "Collapse this run of commands";
 pub(crate) const SETTINGS_INVALID_NUMBERS: &str = "Check that the entered values are numbers.";
 
 // ============================================================================

@@ -170,6 +170,19 @@ fn snapshot_other_chip_editor() {
     settled_snapshot(&mut harness, "other_chip_editor");
 }
 
+/// A long run of same-kind commands folds to one summary row with a disclosure
+/// chevron, so the table shows structure rather than a wall of waits.
+#[test]
+fn snapshot_folded_run() {
+    let (mut harness, _handles) = build(
+        Some(picked_vgm(&crate::test_song::folding_vgm())),
+        true,
+        true,
+    );
+    harness.run();
+    settled_snapshot(&mut harness, "folded_run");
+}
+
 /// The dialog is now the answer for one case only: a file whose commands
 /// cannot be walked, and so has nothing to put in the table.
 #[test]
