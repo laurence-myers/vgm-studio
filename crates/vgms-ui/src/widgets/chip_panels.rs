@@ -22,9 +22,11 @@
 //! work on every core. The strip is drawn **always** -- even for a single chip,
 //! even an empty editor -- so the deck's shape does not jump as documents come
 //! and go, and it wraps to a second row rather than scrolling when a wide chip
-//! set outgrows the deck. A fold icon right-aligned beside the strip shows or
-//! hides the selected chip's control panel (folded by default); folding hides
-//! only those controls, never the strip, and the mix keeps applying.
+//! set outgrows the deck. A fold handle at the left of the strip shows or
+//! hides the selected chip's control panel (folded by default); its engraved
+//! chevron points the way a click takes the deck -- down to open, up to close.
+//! Folding hides only those controls, never the strip, and the mix keeps
+//! applying.
 //!
 //! A generic multichip file gets one entry per chip *instance* -- a dual
 //! SN76489 is two cells -- because a user mutes one of the pair, not the kind;
@@ -37,8 +39,9 @@ use vgms_synth::{ChipMuting, ChipPanning, ChipTrims, Muting, Panning, opl_muting
 use super::chip_channels::{ChannelsResponse, GenericChannelPanel};
 use super::pan_controls::{PAN_CENTER, PAN_LEFT, PAN_RIGHT};
 use super::pan_knob;
+use crate::theme::icon::{self, Icon};
 use crate::theme::paint::darken;
-use crate::theme::{Palette, tabs};
+use crate::theme::{Palette, bevel, tabs};
 
 /// Padding between the selector well's edge and its cells.
 const WELL_PAD: i8 = 3;
@@ -279,8 +282,8 @@ impl ChipPanels {
         }
     }
 
-    /// Draws the selector strip (always), a right-aligned fold icon, and --
-    /// while `expanded` -- the selected chip's controls. The icon toggles
+    /// Draws a left-aligned fold handle, the selector strip (always), and --
+    /// while `expanded` -- the selected chip's controls. The handle toggles
     /// `expanded`; folding hides only the controls below the strip, so the
     /// lamps, trims and tabs stay reachable and the mix keeps applying.
     ///
@@ -298,11 +301,8 @@ impl ChipPanels {
     ) -> ChannelsResponse {
         let mut response = ui
             .horizontal(|ui| {
-                let response = self.selector(ui, palette);
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    fold_icon(ui, palette, expanded);
-                });
-                response
+                fold_icon(ui, palette, expanded);
+                self.selector(ui, palette)
             })
             .inner;
         // A bottom margin under the tabs so the deck shows between them and the
@@ -447,7 +447,9 @@ impl ChipPanels {
                 LAMP_SIZE + CELL_INNER_GAP + pan_knob::SIZE + CELL_INNER_GAP + name_cell
             })
             .fold(1.0_f32, f32::max);
-        let avail = ui.available_width() - FOLD_ICON_ALLOWANCE;
+        // The fold handle is laid out before the well in the same row, so the
+        // width available here already excludes its slot -- no reservation needed.
+        let avail = ui.available_width();
         (((avail + CELL_GAP) / (widest + CELL_GAP)).floor() as usize).max(1)
     }
 
@@ -536,33 +538,59 @@ pub(crate) fn default_opl_panning(song: &DroSong) -> Panning {
     }
 }
 
-/// Width kept clear beside the selector well for the fold icon, so the strip's
-/// wrap never pushes the icon off the row.
+/// The width of the fold handle's slot at the left of the strip.
 const FOLD_ICON_ALLOWANCE: f32 = 24.0;
 
-/// The deck's fold icon, right-aligned beside the strip: a CP437 triangle in a
-/// clickable muted label (the app's disclosure idiom). Toggles `expanded`.
+/// The deck's fold handle, at the left of the strip: an engraved chevron with a
+/// small vertical rule marking it off from the well, so it reads as a clickable
+/// section. The chevron points the way a click takes the deck -- **down** to
+/// open (when folded), **up** to close (when open) -- and toggles `expanded`.
 fn fold_icon(ui: &mut egui::Ui, palette: &Palette, expanded: &mut bool) {
     let (glyph, tip) = if *expanded {
-        ("\u{25BC}", crate::strings::CHIP_DECK_TIP_HIDE)
+        (Icon::Up, crate::strings::CHIP_DECK_TIP_HIDE)
     } else {
-        ("\u{25BA}", crate::strings::CHIP_DECK_TIP_SHOW)
+        (Icon::Dn, crate::strings::CHIP_DECK_TIP_SHOW)
     };
-    let icon = ui
-        .add(
-            egui::Label::new(egui::RichText::new(glyph).color(palette.muted))
-                // Not selectable: selection would swallow the click.
-                .selectable(false)
-                .sense(egui::Sense::click()),
-        )
+    let size = egui::vec2(FOLD_ICON_ALLOWANCE, ui.spacing().interact_size.y);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let response = response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(tip);
-    // A stable accessible name: the bare triangle glyph would collide with the
-    // volume stepper's arrows in the accessibility tree.
-    icon.widget_info(|| {
+    // A stable accessible name: the bare chevron would collide with the volume
+    // stepper's arrows in the accessibility tree.
+    response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "chip deck fold")
     });
-    if icon.clicked() {
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        // A small vertical rule at the right edge, setting the handle off from
+        // the selector well beside it.
+        let rule = egui::Rangef::new(rect.top() + 2.0, rect.bottom() - 2.0);
+        bevel::groove_v(painter, rect.right() - 2.0, rule, palette);
+        // The chevron, engraved into the deck: a light lower edge under a black
+        // glyph so it reads as cut in rather than sitting on top. Centred in the
+        // space left of the rule, and inked a touch heavier on hover.
+        let glyph_rect = egui::Rect::from_center_size(
+            rect.center() - egui::vec2(1.0, 0.0),
+            egui::Vec2::splat(14.0),
+        );
+        let stroke = if response.hovered() { 1.9 } else { 1.7 };
+        icon::draw(
+            painter,
+            glyph,
+            glyph_rect.translate(egui::vec2(0.0, 1.0)),
+            egui::Color32::from_white_alpha(85),
+            stroke,
+        );
+        icon::draw(
+            painter,
+            glyph,
+            glyph_rect,
+            egui::Color32::from_black_alpha(215),
+            stroke,
+        );
+    }
+    if response.clicked() {
         *expanded = !*expanded;
     }
 }
