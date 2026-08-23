@@ -248,21 +248,21 @@ jobs:
         working-directory: web-e2e
         run: npx playwright install --with-deps ${{ matrix.browser }}
 
-      # Firefox ships no software rasteriser (Chromium carries SwiftShader), so
-      # on a GPU-less runner its WebGL2 canvas -- and thus the `__vgms_e2e` hook
-      # inside eframe's creator -- never comes up. Mesa's llvmpipe supplies a
-      # software GL; force it on and make sure its DRI driver is present.
-      - name: Enable software WebGL for Firefox
+      # Firefox needs an X display to create *any* GL context, even in -headless
+      # mode: without one its driver probe ends in
+      # FEATURE_FAILURE_WEBGL_EXHAUSTED_DRIVERS, `canvas.getContext("webgl2")`
+      # returns null, eframe's creator never runs, and the `__vgms_e2e` hook the
+      # specs wait for never appears. An Xvfb display is enough -- Mesa then
+      # falls back to llvmpipe by itself, no env vars or prefs needed. Chromium
+      # renders through its bundled SwiftShader and needs no display.
+      # (Reproduced and verified in mcr.microsoft.com/playwright:v1.62.1-noble.)
+      - name: Ensure Xvfb is available
         if: matrix.browser == 'firefox'
-        run: sudo apt-get update && sudo apt-get install -y libgl1-mesa-dri
+        run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
 
       - name: Run the web e2e suite
         working-directory: web-e2e
-        run: npx playwright test --project=${{ matrix.browser }}
-        env:
-          # Harmless to Chromium (its ANGLE/SwiftShader path ignores system GL).
-          LIBGL_ALWAYS_SOFTWARE: "1"
-          GALLIUM_DRIVER: llvmpipe
+        run: ${{ matrix.browser == 'firefox' && 'xvfb-run -a ' || '' }}npx playwright test --project=${{ matrix.browser }}
 
       - name: Upload the report on failure
         if: failure()

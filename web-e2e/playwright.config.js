@@ -52,13 +52,13 @@ export default defineConfig({
       },
     },
     {
-      // Firefox has no bundled software rasteriser like Chromium's SwiftShader,
-      // so headless CI (no GPU) gives it none and eframe's WebGL2 canvas never
-      // comes up -- the `__vgms_e2e` hook installs inside eframe's creator, so
-      // the specs then time out. The renderer is supplied out-of-band by Mesa's
-      // llvmpipe: the CI job sets `LIBGL_ALWAYS_SOFTWARE=1` for this process.
-      // `webgl.force-enabled` then bypasses the blocklist so the software context
-      // is accepted; `webgl.disabled: false` guards against a headless default.
+      // Firefox has no bundled software rasteriser like Chromium's SwiftShader:
+      // it needs an X display to create any GL context, even headless. Without
+      // one, `getContext("webgl2")` is null, eframe's creator never runs and the
+      // `__vgms_e2e` hook never appears. That is the job's problem, not this
+      // file's: CI wraps the Firefox run in `xvfb-run`, after which Mesa picks
+      // llvmpipe on its own. Locally a real display serves. The prefs below only
+      // keep WebGL allowed once a context is possible (blocklist bypass).
       name: "firefox",
       use: {
         ...devices["Desktop Firefox"],
