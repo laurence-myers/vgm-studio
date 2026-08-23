@@ -1082,7 +1082,7 @@ impl Editor {
         } else {
             "Bank"
         };
-        ["Pos (hex)", second, "Reg.", "Value", "Description"]
+        ["Pos", second, "Reg.", "Value", "Description"]
     }
 
     /// [`Self::row_cells`] for tests, which have only a shared reference.
@@ -1090,7 +1090,7 @@ impl Editor {
     #[must_use]
     pub fn row_cells_for_test(&self, index: usize) -> RowCells {
         let mut clone_free = RowCells {
-            position: format!("{index:04X}"),
+            position: format!("{index:#06X}"),
             ..RowCells::default()
         };
         if let Some(stream) = self.vgm.as_ref().and_then(VgmFile::stream) {
@@ -1105,7 +1105,7 @@ impl Editor {
     /// not have to know which kind it is drawing.
     #[must_use]
     pub fn row_cells(&mut self, index: usize) -> RowCells {
-        let position = format!("{index:04X}");
+        let position = format!("{index:#06X}");
         if self.shows_chip_rows() {
             // `stream` borrows `self.vgm`, the analyser borrows `self.analysis`
             // -- disjoint fields, so both live at once without cloning the

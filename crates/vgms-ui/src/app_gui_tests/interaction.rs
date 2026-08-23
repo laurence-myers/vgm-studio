@@ -154,7 +154,7 @@ fn loading_a_dro_shows_table_and_status() {
 
     assert_eq!(harness.state().status, "Successfully opened tone.dro.");
     assert_eq!(harness.state().editor.len(), song.len());
-    for header in ["Pos (hex)", "Bank", "Reg.", "Value", "Description"] {
+    for header in ["Pos", "Bank", "Reg.", "Value", "Description"] {
         assert!(
             harness.query_by_label(header).is_some(),
             "missing table header {header:?}"
