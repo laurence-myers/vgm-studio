@@ -63,20 +63,76 @@ fn credit_from(info: &CoreInfo) -> CoreCredit {
     }
 }
 
-/// The credits as plain lines, one core per stanza.
+/// Condenses a core's SPDX license for the compact About table.
 ///
-/// The About dialog is a text alert, so the formatting lives here rather than
-/// in the UI crate -- keeping it beside the data means a provider crate added
-/// later cannot be credited in one place and forgotten in the other.
+/// libvgm ships no explicit grant, so its terms are recorded in `PROVENANCE.md`
+/// and its license string is the long "see PROVENANCE.md -- upstream publishes
+/// no grant". In the table that whole clause is just noise repeated down the
+/// column, so it shows as "see PROVENANCE.md". Every other license is a short
+/// SPDX expression already and passes through unchanged.
+#[must_use]
+pub fn short_license(license: &str) -> &str {
+    if license.starts_with("see PROVENANCE.md") {
+        "see PROVENANCE.md"
+    } else {
+        license
+    }
+}
+
+/// The credits as an aligned table: one row per chip and a core that serves it,
+/// ordered by chip name, with the core's source library and license.
+///
+/// The About dialog is a text alert and the app's font is fixed-width, so the
+/// columns line up from space padding alone. The formatting lives here rather
+/// than in the UI crate -- keeping it beside the data means a provider crate
+/// added later cannot be credited in one place and forgotten in the other.
 #[must_use]
 pub fn credits_text() -> String {
+    // One row per (chip, core): the registry already keys on that pair, so a
+    // core serving several chips lists under each, which is what "ordered by
+    // chip" wants.
+    let mut rows: Vec<(&'static str, &'static str, &'static str)> = registry::registry()
+        .all()
+        .map(|info| (info.chip.name(), info.label, short_license(info.license)))
+        .collect();
+    // By chip name, then by the source library within a chip.
+    rows.sort_by(|a, b| a.0.cmp(b.0).then(a.1.cmp(b.1)));
+
+    const HEAD: (&str, &str, &str) = ("Chip", "Source library", "License");
+    let chip_w = rows
+        .iter()
+        .map(|row| row.0.len())
+        .max()
+        .unwrap_or(0)
+        .max(HEAD.0.len());
+    let src_w = rows
+        .iter()
+        .map(|row| row.1.len())
+        .max()
+        .unwrap_or(0)
+        .max(HEAD.1.len());
+    // The last column is not padded, but its rule spans the widest entry so the
+    // header underline reaches across the whole column.
+    let license_w = rows
+        .iter()
+        .map(|row| row.2.len())
+        .max()
+        .unwrap_or(0)
+        .max(HEAD.2.len());
+
     let mut out = String::new();
-    for core in credits() {
-        out.push_str(&format!("  {} -- {}\n", core.label, core.chips));
-        out.push_str(&format!("    {}, {}\n", core.authors, core.license));
-        if !core.upstream.is_empty() {
-            out.push_str(&format!("    {}\n", core.upstream));
-        }
+    out.push_str(&format!(
+        "  {:<chip_w$}  {:<src_w$}  {}\n",
+        HEAD.0, HEAD.1, HEAD.2
+    ));
+    out.push_str(&format!(
+        "  {}  {}  {}\n",
+        "-".repeat(chip_w),
+        "-".repeat(src_w),
+        "-".repeat(license_w),
+    ));
+    for (chip, src, license) in rows {
+        out.push_str(&format!("  {chip:<chip_w$}  {src:<src_w$}  {license}\n"));
     }
     out
 }
@@ -137,11 +193,23 @@ mod tests {
                 "{} missing from the text",
                 core.label
             );
+            // The table shows the condensed license (libvgm's long clause becomes
+            // "see PROVENANCE.md"); every core's terms are still named.
             assert!(
-                text.contains(&core.license),
+                text.contains(short_license(&core.license)),
                 "{}: license missing",
                 core.label
             );
         }
+    }
+
+    #[test]
+    fn libvgm_terms_condense_but_real_spdx_passes_through() {
+        assert_eq!(
+            short_license("see PROVENANCE.md -- upstream publishes no grant"),
+            "see PROVENANCE.md"
+        );
+        assert_eq!(short_license("LGPL-2.1-or-later"), "LGPL-2.1-or-later");
+        assert_eq!(short_license("MIT OR Apache-2.0"), "MIT OR Apache-2.0");
     }
 }

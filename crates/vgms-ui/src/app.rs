@@ -45,8 +45,8 @@ use crate::widgets::{
 /// The About box: who wrote it, and -- because this program links copyleft
 /// emulator cores -- what it is licensed under and where each core came from.
 ///
-/// The core stanza is generated from [`vgms_synth::credits`] rather than typed
-/// here, so a core cannot be linked in without being credited.
+/// The core table is generated from [`vgms_synth::credits_text`] rather than
+/// typed here, so a core cannot be linked in without being credited.
 fn about_text() -> String {
     crate::strings::app_about_text(
         env!("CARGO_PKG_VERSION"),
@@ -508,7 +508,7 @@ mod about_tests {
                 core.label
             );
             assert!(
-                text.contains(&core.license),
+                text.contains(vgms_synth::short_license(&core.license)),
                 "{} is credited without its license",
                 core.label
             );

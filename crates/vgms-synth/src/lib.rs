@@ -39,7 +39,7 @@ pub use channel_gate::{ChannelGate, GateAction};
 pub use chip::{ChipCore, Playability, RecordingChip, core_for, core_for_file, playability};
 pub use chip_mix::{ChipMuting, ChipPanning, ChipTrims};
 pub use clock::{FrameClock, LoopConfig, LoopCount, Muting, Panning, Position};
-pub use credits::{CoreCredit, credits, credits_text};
+pub use credits::{CoreCredit, credits, credits_text, short_license};
 pub use dac_stream::{DacStreams, PendingWrite, StreamTarget};
 pub use decompress::{DecompressionTable, decompress};
 pub use limiter::BoostLimiter;
