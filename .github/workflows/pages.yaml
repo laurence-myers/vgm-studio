@@ -40,11 +40,24 @@ jobs:
 
       # The C sound cores compile to wasm through clang (`-ffreestanding`); the
       # worklet and app modules link them. The wasip1 tool build brings its own
-      # clang+wasm-ld (the wasi-sdk bundle), so apt need not supply lld; binaryen
-      # gives build-web.ps1 the wasm-opt it uses to shrink the ~12.7 MB app
-      # module.
-      - name: Install clang and binaryen
-        run: sudo apt-get update && sudo apt-get install -y clang binaryen
+      # clang+wasm-ld (the wasi-sdk bundle), so apt need not supply lld.
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+
+      # binaryen gives build-web.ps1 the wasm-opt it uses to shrink the ~12.7 MB
+      # app module. Not from apt: Ubuntu noble ships binaryen 108 (2022), which
+      # cannot parse the `table.fill` (0xFC 0x11) that rustc >= 1.82 emits with
+      # reference-types on by default -- "invalid code after misc prefix: 17".
+      # A current upstream release binary parses everything the pinned
+      # toolchain produces.
+      - name: Install binaryen
+        env:
+          BINARYEN_VERSION: version_132
+        run: |
+          curl -sSfL "https://github.com/WebAssembly/binaryen/releases/download/${BINARYEN_VERSION}/binaryen-${BINARYEN_VERSION}-x86_64-linux.tar.gz" \
+            | tar -xz -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/binaryen-${BINARYEN_VERSION}/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/binaryen-${BINARYEN_VERSION}/bin/wasm-opt" --version
 
       # The CLI's version must match the `wasm-bindgen` version Cargo.lock
       # resolves (pinned `=0.2.126` in vgms-web), or the generated glue will not
