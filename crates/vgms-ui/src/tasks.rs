@@ -219,6 +219,13 @@ pub enum TaskResult {
     /// One `(file_name, peak)` per pack track measured, for the pack Peak column.
     /// A cancelled scan (the folder changed) emits nothing.
     PackPeaks(Vec<(String, Peak)>),
+    /// How far a pack volume scan has got: `done` of `total` tracks, for the
+    /// status bar's progress readout. Emitted before each track; the final
+    /// [`Self::PackPeaks`] is the completion signal.
+    PackScanProgress {
+        done: usize,
+        total: usize,
+    },
     /// The loop candidates found so far, best-first. Emitted as a growing ranked
     /// snapshot while the search streams, so the dialog's table fills in live; a
     /// cancelled search emits nothing.
@@ -385,10 +392,21 @@ pub fn run_task(
             sample_rate,
             resampling,
         } => {
-            let mut peaks = Vec::with_capacity(tracks.len());
-            for (name, source) in tracks {
+            let total = tracks.len();
+            let mut peaks = Vec::with_capacity(total);
+            for (index, (name, source)) in tracks.iter().enumerate() {
                 // Abandon promptly (emitting nothing) if the folder changed under
-                // us -- a whole-pack scan is easy to leave stale.
+                // us -- a whole-pack scan is easy to leave stale. Checked before
+                // the progress ping so a cancelled scan stays silent.
+                if is_cancelled() {
+                    return;
+                }
+                // Count up before each track so the status bar shows which song is
+                // being measured.
+                emit(TaskResult::PackScanProgress {
+                    done: index + 1,
+                    total,
+                });
                 let Some(peak) = measure_source(source, *sample_rate, *resampling, is_cancelled)
                 else {
                     return;
@@ -739,15 +757,30 @@ mod tests {
             resampling: vgms_synth::resample::ResampleMode::Sinc,
         };
         let results = collect(&scan, || false);
-        let [TaskResult::PackPeaks(peaks)] = results.as_slice() else {
-            panic!("expected one PackPeaks, got {results:?}");
+        // A progress ping precedes each track, counting up, then the peaks are
+        // the final result and the completion signal.
+        let progress: Vec<_> = results
+            .iter()
+            .filter_map(|result| match result {
+                TaskResult::PackScanProgress { done, total } => Some((*done, *total)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            progress,
+            vec![(1, 2), (2, 2)],
+            "one ping per track, counting up"
+        );
+        let Some(TaskResult::PackPeaks(peaks)) = results.last() else {
+            panic!("expected PackPeaks last, got {results:?}");
         };
         assert_eq!(peaks.len(), 2);
         assert_eq!(peaks[0].0, "01.vgm");
         assert_eq!(peaks[0].1, expected);
         assert_eq!(peaks[1].0, "02.vgm");
         assert_eq!(peaks[1].1, expected);
-        // A cancelled scan emits nothing at all, not a partial list.
+        // A cancelled scan emits nothing at all -- not a partial list, and not
+        // even a progress ping.
         assert!(collect(&scan, || true).is_empty());
     }
 

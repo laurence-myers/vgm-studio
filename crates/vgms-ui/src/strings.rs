@@ -355,6 +355,11 @@ pub(crate) fn app_status_scanning_volumes(count: impl std::fmt::Display) -> Stri
     format!("Scanning {count} track volume(s)...")
 }
 
+/// The pack volume scan's live progress, for the status bar's busy readout.
+pub(crate) fn app_busy_scanning_volumes(done: usize, total: usize) -> String {
+    format!("Scanning song {done} / {total}")
+}
+
 pub(crate) fn app_status_loop_candidates(count: impl std::fmt::Display) -> String {
     format!("Found {count} loop candidate(s).")
 }

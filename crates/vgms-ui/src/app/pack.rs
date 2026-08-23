@@ -229,6 +229,7 @@ impl VgmStudioApp {
         // different folder's scan must never fill this one's Peak column. The
         // peaks map itself is pruned per track in `refresh_files`.
         self.tasks.cancel(TaskKind::PackVolumeScan);
+        self.pack_scan_progress = None;
         let same = self
             .pack
             .as_ref()
@@ -804,6 +805,9 @@ impl VgmStudioApp {
             None,
         );
         self.status = crate::strings::app_status_scanning_volumes(count);
+        // Seed the busy readout so it counts from "1 / count" the instant the
+        // first track reports, rather than flashing "0 / 0".
+        self.pack_scan_progress = Some((0, count));
     }
 
     /// Routes a streamed loop-search snapshot into the Find Loop dialog, if it is
@@ -832,6 +836,7 @@ impl VgmStudioApp {
             pack.peaks.insert(name, peak);
         }
         self.status = crate::strings::app_status_scanned_volumes(count);
+        self.pack_scan_progress = None;
     }
 
     /// Sets each scanned track's VGM volume modifier so the pack is levelled, as

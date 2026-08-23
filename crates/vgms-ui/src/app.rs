@@ -337,6 +337,9 @@ pub struct VgmStudioApp {
     /// The status text as of the last frame, so the status bar can flash when
     /// it changes. Display-only state; `status` itself stays the truth.
     status_shown: String,
+    /// How far the pack volume scan has got (`done`, `total`), shown in the
+    /// status bar while it runs and cleared when it finishes or is cancelled.
+    pack_scan_progress: Option<(usize, usize)>,
     /// Whether the selected chip's control panel is unfolded below the chip
     /// strip. Folded by default; the strip (lamps, trims, tabs) always shows,
     /// and folding hides only the controls: mutes, pans and trims keep

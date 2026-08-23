@@ -47,6 +47,7 @@ impl VgmStudioApp {
             position: PositionPanel::new(initial_frequency),
             channels: ChipPanels::new(),
             status_shown: String::new(),
+            pack_scan_progress: None,
             chips_expanded: false,
             scroll_to: None,
             last_first_selected: None,

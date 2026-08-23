@@ -176,6 +176,15 @@ impl VgmStudioApp {
                                     crate::strings::APP_BUSY_RENDER_WAVEFORM
                                 ));
                             }
+                            // Scanning a pack's volumes counts its tracks off, so
+                            // the user sees it advance rather than just spin.
+                            if self.tasks.is_busy_kind(TaskKind::PackVolumeScan) {
+                                let (done, total) = self.pack_scan_progress.unwrap_or((0, 0));
+                                ui.label(format!(
+                                    "{spin} {}",
+                                    crate::strings::app_busy_scanning_volumes(done, total)
+                                ));
+                            }
                         });
                     });
                     if flash > 0.0 {
@@ -629,6 +638,9 @@ impl VgmStudioApp {
                 }
                 TaskResult::Peak(peak) => self.handle_volume_scan(peak),
                 TaskResult::PackPeaks(peaks) => self.handle_pack_peaks(peaks),
+                TaskResult::PackScanProgress { done, total } => {
+                    self.pack_scan_progress = Some((done, total));
+                }
                 TaskResult::LoopCandidates(candidates) => self.handle_loop_candidates(candidates),
             }
         }

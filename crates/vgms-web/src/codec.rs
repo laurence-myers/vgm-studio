@@ -738,6 +738,11 @@ pub fn encode_result(result: &TaskResult) -> Vec<u8> {
                 writer.bool(candidate.clean_repeat);
             }
         }
+        TaskResult::PackScanProgress { done, total } => {
+            writer.u8(7);
+            writer.usize(*done);
+            writer.usize(*total);
+        }
     }
     writer.out
 }
@@ -816,6 +821,10 @@ pub fn decode_result(input: &[u8]) -> Result<TaskResult> {
             }
             TaskResult::LoopCandidates(candidates)
         }
+        7 => TaskResult::PackScanProgress {
+            done: reader.usize("scan.done")?,
+            total: reader.usize("scan.total")?,
+        },
         other => return Err(CodecError::Tag("result.tag", other)),
     };
     Ok(result)
