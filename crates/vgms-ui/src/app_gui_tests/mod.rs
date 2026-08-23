@@ -244,27 +244,23 @@ fn other_chip_vgm_file() -> PickedFile {
     }
 }
 
-/// Turns a knob centred at `center` with the circular gesture the widget reads:
-/// press on the knob, sweep the pointer `degrees` clockwise (negative for
-/// anticlockwise) along a circle around it, release. One full 270-degree sweep
-/// spans the knob's whole range, so +/-200 degrees clamps to an extreme.
-fn drag_knob(harness: &mut Harness<'static, VgmStudioApp>, center: egui::Pos2, degrees: f32) {
-    const RADIUS: f32 = 30.0;
-    let at = |deg: f32| {
-        // Degrees clockwise from 12 o'clock, in egui's y-down space.
-        let t = (deg - 90.0).to_radians();
-        center + egui::vec2(t.cos() * RADIUS, t.sin() * RADIUS)
-    };
+/// Turns a knob centred at `center` with the linear drag the widget reads, the
+/// way a DAW or VST knob does: press on it, drag `points` right-and-up (negative
+/// for left-and-down), release. A pan/spread knob answers the horizontal
+/// component, the trim the vertical one, so a positive `points` raises whichever
+/// knob it lands on and a negative one lowers it. ~128 points spans the whole
+/// range, so +/-200 clamps to an extreme.
+fn drag_knob(harness: &mut Harness<'static, VgmStudioApp>, center: egui::Pos2, points: f32) {
+    // Right and up both raise (pan right / trim up); left and down both lower.
+    let delta = egui::vec2(points, -points);
     harness.drag_at(center);
     harness.run();
-    // Sub-half-turn hops, so each per-frame sweep reads as the short arc.
-    let steps = (degrees.abs() / 45.0).ceil().max(1.0) as usize;
-    for i in 0..=steps {
-        let deg = degrees * (i as f32 / steps as f32);
-        harness.hover_at(at(deg));
+    let steps = (points.abs() / 20.0).ceil().max(1.0) as usize;
+    for i in 1..=steps {
+        harness.hover_at(center + delta * (i as f32 / steps as f32));
         harness.run();
     }
-    harness.drop_at(at(degrees));
+    harness.drop_at(center + delta);
     harness.run();
 }
 

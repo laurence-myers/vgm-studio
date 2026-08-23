@@ -92,12 +92,16 @@ const SECTIONS: &[Section] = &[
                 "Solo the chip and unmute it; right-click again to restore the rest",
             ),
             (
-                Keys::Text("Drag a knob in a circle"),
-                "Turn it: clockwise raises, anticlockwise lowers",
+                Keys::Text("Drag a pan knob left / right"),
+                "Pan it: right pans right, left pans left",
+            ),
+            (
+                Keys::Text("Drag a trim knob up / down"),
+                "Set its level: up raises, down lowers",
             ),
             (Keys::Text("Scroll over a knob"), "Step its value"),
             (
-                Keys::Text("Shift+turn / Shift+scroll"),
+                Keys::Text("Shift+drag / Shift+scroll"),
                 "Fine adjustment (also lifts the snap detents)",
             ),
             (

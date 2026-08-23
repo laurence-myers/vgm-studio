@@ -34,8 +34,8 @@ fn pan_knob_drag_sends_custom_panning_without_resending_muting() {
     harness.run();
     let mutings_before = handles.audio.borrow().mutings.len();
 
-    // Turn channel 1's knob well past a full anticlockwise sweep: the turn
-    // clamps it hard left regardless of the exact per-frame split.
+    // Drag channel 1's knob well past its full leftward travel: it clamps hard
+    // left regardless of the exact per-frame split.
     let center = harness.get_by_label("FM 1").rect().center();
     drag_knob(&mut harness, center, -200.0);
 
@@ -55,13 +55,13 @@ fn pan_knob_drag_sends_custom_panning_without_resending_muting() {
 }
 
 #[test]
-fn pan_knob_partial_anticlockwise_turn_pans_partway_left() {
+fn pan_knob_partial_left_drag_pans_partway_left() {
     let (mut harness, handles) = harness_with_song(&tone_song());
     harness.get_by_label("Custom").click();
     harness.run();
 
-    // A partial anticlockwise turn pans left by the swept fraction of the
-    // 270-degree range, without reaching the hard-left clamp.
+    // A short leftward drag pans left by that fraction of the range, without
+    // reaching the hard-left clamp.
     let center = harness.get_by_label("FM 1").rect().center();
     drag_knob(&mut harness, center, -60.0);
 
@@ -75,7 +75,7 @@ fn pan_knob_partial_anticlockwise_turn_pans_partway_left() {
         vgms_synth::Panning::Custom(pans) => {
             assert!(
                 pans[0] < 0x80 && pans[0] > 0x00,
-                "a 60-degree turn pans partway left, got {:#04x}",
+                "a short leftward drag pans partway left, got {:#04x}",
                 pans[0]
             );
             assert_eq!(pans[1], 0x80, "channel 2 stays centred");
@@ -127,8 +127,8 @@ fn dual_opl2_original_pans_hard_left_and_right() {
 fn spread_knob_spreads_the_pans_and_engages_custom() {
     let (mut harness, handles) = harness_with_song(&tone_song());
 
-    // Turn the Spread knob clockwise: a positive spread leans even channels
-    // left, odd channels right, and engages Custom so the knobs go live.
+    // Drag the Spread knob right: a positive spread leans even channels left,
+    // odd channels right, and engages Custom so the knobs go live.
     let center = harness.get_by_label("Spread").rect().center();
     drag_knob(&mut harness, center, 200.0);
 

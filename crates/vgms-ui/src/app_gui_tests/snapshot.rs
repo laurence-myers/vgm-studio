@@ -369,7 +369,7 @@ fn dragging_a_chip_trim_knob_pushes_the_attenuation() {
     let (mut harness, handles) = build(Some(mega_drive_vgm_file()), false, false);
     harness.run();
 
-    // Turn the SN76489's level knob anticlockwise, which lowers it.
+    // Drag the SN76489's level knob down, which lowers it.
     let knob = harness.get_by_label("SN76489 level").rect().center();
     drag_knob(&mut harness, knob, -60.0);
 
