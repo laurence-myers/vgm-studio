@@ -647,11 +647,9 @@ impl VgmStudioApp {
             SettingsAction::Open => self.on_open_settings(),
             SettingsAction::PreviewCores(cores) => self.preview_cores(cores),
             SettingsAction::PreviewResampling(mode) => self.preview_resampling(mode),
-            SettingsAction::PreviewSkin {
-                theme,
-                pad_style,
-                deck_style,
-            } => self.preview_skin(ctx, theme, pad_style, deck_style),
+            SettingsAction::PreviewSkin { theme, pad_style } => {
+                self.preview_skin(ctx, theme, pad_style);
+            }
         }
     }
 

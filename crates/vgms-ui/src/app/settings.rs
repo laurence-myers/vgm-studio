@@ -77,7 +77,6 @@ impl VgmStudioApp {
         ctx: &egui::Context,
         theme: ThemeChoice,
         pad_style: SurfaceChoice,
-        deck_style: SurfaceChoice,
     ) {
         if self.shown_skin().0 != theme {
             theme::apply_palette(ctx, theme);
@@ -85,9 +84,8 @@ impl VgmStudioApp {
         // Matching the saved settings *is* no preview, so Close leaves nothing
         // behind to go stale.
         let ui = &self.config.ui;
-        self.skin_preview = ((theme, pad_style, deck_style)
-            != (ui.theme, ui.pad_style, ui.deck_style))
-            .then_some((theme, pad_style, deck_style));
+        self.skin_preview =
+            ((theme, pad_style) != (ui.theme, ui.pad_style)).then_some((theme, pad_style));
     }
 
     // -- helpers -------------------------------------------------------------

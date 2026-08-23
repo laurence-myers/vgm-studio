@@ -392,7 +392,6 @@ pub enum SettingsAction {
     PreviewSkin {
         theme: ThemeChoice,
         pad_style: SurfaceChoice,
-        deck_style: SurfaceChoice,
     },
 }
 

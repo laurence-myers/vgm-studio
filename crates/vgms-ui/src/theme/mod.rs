@@ -23,11 +23,12 @@ pub use palette::{Palette, Surface, palette};
 pub(crate) use palette::{deck_stops, pad_caps};
 pub use vgms_core::config::{SurfaceChoice, ThemeChoice};
 
-/// The palette for `choice` with the configured pad/deck overrides applied.
+/// The palette for `choice` with the configured pad override applied.
 /// `SurfaceChoice::ThemeDefault` leaves the case's own treatment alone, so a
-/// theme only changes where the user has asked it to.
+/// theme only changes where the user has asked it to. The deck keeps whatever
+/// surface the theme specifies -- it is no longer separately overridable.
 #[must_use]
-pub fn palette_with(choice: ThemeChoice, pad: SurfaceChoice, deck: SurfaceChoice) -> Palette {
+pub fn palette_with(choice: ThemeChoice, pad: SurfaceChoice) -> Palette {
     let forced = |c: SurfaceChoice| match c {
         SurfaceChoice::ThemeDefault => None,
         SurfaceChoice::Light => Some(Surface::Light),
@@ -38,10 +39,6 @@ pub fn palette_with(choice: ThemeChoice, pad: SurfaceChoice, deck: SurfaceChoice
     let mut p = *palette(choice);
     if let Some(s) = forced(pad) {
         p.pad = s;
-    }
-    // Grey is not one of the deck's treatments; `for_deck` folds it away.
-    if let Some(s) = forced(deck.for_deck()) {
-        p.deck = s;
     }
     p
 }

@@ -11,9 +11,9 @@ use crate::platform::HardwarePortInfo;
 use crate::theme::Palette;
 use crate::widgets::chip_output;
 
-/// The appearance settings, as `(theme, pad_style, deck_style)`. These three
-/// preview live, so they travel together.
-type Skin = (ThemeChoice, SurfaceChoice, SurfaceChoice);
+/// The appearance settings, as `(theme, pad_style)`. Both preview live, so they
+/// travel together.
+type Skin = (ThemeChoice, SurfaceChoice);
 
 /// The loaded document, for the Output tab's "This song" section: its name and
 /// the chips it clocks, so the cores it actually uses come first.
@@ -64,7 +64,6 @@ pub struct SettingsDialog {
     dro_info_edit_enabled: bool,
     theme: ThemeChoice,
     pad_style: SurfaceChoice,
-    deck_style: SurfaceChoice,
     /// The core chosen per chip slot, edited in place by the picker. The whole
     /// map, not just OPL's row: every chip's core is a setting now.
     cores: BTreeMap<String, String>,
@@ -115,9 +114,6 @@ impl SettingsDialog {
             dro_info_edit_enabled: config.ui.dro_info_edit_enabled,
             theme: config.ui.theme,
             pad_style: config.ui.pad_style,
-            // The deck has no grey treatment, so a hand-edited ini naming one
-            // must not show a choice the dropdown cannot offer back.
-            deck_style: config.ui.deck_style.for_deck(),
             cores: config.audio.cores.clone(),
             previewed_cores: config.audio.cores.clone(),
             optimizer: config.optimizer,
@@ -189,18 +185,18 @@ impl SettingsDialog {
         }
     }
 
-    /// The three appearance settings, which preview live rather than waiting for
-    /// Save -- a colour scheme can only be judged on the whole window, not on a
+    /// The appearance settings, which preview live rather than waiting for Save
+    /// -- a colour scheme can only be judged on the whole window, not on a
     /// dropdown's label.
     fn skin(&self) -> Skin {
-        (self.theme, self.pad_style, self.deck_style)
+        (self.theme, self.pad_style)
     }
 
     /// The appearance the dialog opened with, restored when it is closed without
     /// saving.
     fn original_skin(&self) -> Skin {
         let ui = &self.original.ui;
-        (ui.theme, ui.pad_style, ui.deck_style.for_deck())
+        (ui.theme, ui.pad_style)
     }
 
     /// Draws the modal. Returns `false` once closed.
@@ -588,24 +584,6 @@ impl SettingsDialog {
                 });
                 ui.end_row();
 
-                ui.label("Deck style")
-                    .on_hover_text(crate::strings::SETTINGS_DECK_STYLE_HOVER);
-                ui.scope(|ui| {
-                    crate::theme::style_dropdown(ui, palette);
-                    egui::ComboBox::from_id_salt("settings-deck-style")
-                        .selected_text(surface_label(self.deck_style))
-                        .show_ui(ui, |ui| {
-                            for choice in SurfaceChoice::DECK {
-                                ui.selectable_value(
-                                    &mut self.deck_style,
-                                    choice,
-                                    surface_label(choice),
-                                );
-                            }
-                        });
-                });
-                ui.end_row();
-
                 // Native only: the web build always fills the browser viewport,
                 // and no wasm code reads `maximize_window`, so the option would do
                 // nothing there. (`vgms-ui` is compiled separately for wasm32, so
@@ -667,11 +645,10 @@ impl SettingsDialog {
         } else {
             self.skin()
         };
-        let (theme, pad_style, deck_style) = wanted;
+        let (theme, pad_style) = wanted;
         (wanted != opened_with).then_some(Action::Settings(SettingsAction::PreviewSkin {
             theme,
             pad_style,
-            deck_style,
         }))
     }
 
@@ -702,7 +679,6 @@ impl SettingsDialog {
         config.ui.dro_info_edit_enabled = self.dro_info_edit_enabled;
         config.ui.theme = self.theme;
         config.ui.pad_style = self.pad_style;
-        config.ui.deck_style = self.deck_style;
 
         if let Err(error) = config.validate() {
             actions.push(Action::Ui(UiAction::Alert {
@@ -1018,11 +994,9 @@ mod tests {
 
     fn previewed(action: Option<Action>) -> Option<Skin> {
         match action {
-            Some(Action::Settings(SettingsAction::PreviewSkin {
-                theme,
-                pad_style,
-                deck_style,
-            })) => Some((theme, pad_style, deck_style)),
+            Some(Action::Settings(SettingsAction::PreviewSkin { theme, pad_style })) => {
+                Some((theme, pad_style))
+            }
             Some(other) => panic!("expected a preview, got {other:?}"),
             None => None,
         }
@@ -1042,7 +1016,7 @@ mod tests {
         dialog.pad_style = SurfaceChoice::Grey;
         assert_eq!(
             previewed(dialog.preview(opened_with, false, false)),
-            Some((ThemeChoice::Wine, SurfaceChoice::Grey, dialog.deck_style)),
+            Some((ThemeChoice::Wine, SurfaceChoice::Grey)),
         );
         // ...and only once: the next frame opens on what is already shown.
         assert_eq!(previewed(dialog.preview(dialog.skin(), false, false)), None);
@@ -1055,18 +1029,14 @@ mod tests {
     fn closing_reverts_the_preview() {
         let mut config = AppConfig::default();
         config.ui.theme = ThemeChoice::Petrol;
-        config.ui.deck_style = SurfaceChoice::Dark;
+        config.ui.pad_style = SurfaceChoice::Dark;
         let mut dialog = SettingsDialog::new(&config, Vec::new());
 
         dialog.theme = ThemeChoice::Olive;
-        dialog.deck_style = SurfaceChoice::Light;
+        dialog.pad_style = SurfaceChoice::Light;
         assert_eq!(
             previewed(dialog.preview(dialog.skin(), true, false)),
-            Some((
-                ThemeChoice::Petrol,
-                SurfaceChoice::ThemeDefault,
-                SurfaceChoice::Dark
-            )),
+            Some((ThemeChoice::Petrol, SurfaceChoice::Dark)),
             "the settings the dialog opened with come back",
         );
     }
@@ -1076,22 +1046,6 @@ mod tests {
     #[test]
     fn closing_on_the_original_appearance_previews_nothing() {
         let dialog = SettingsDialog::new(&AppConfig::default(), Vec::new());
-        assert_eq!(previewed(dialog.preview(dialog.skin(), true, false)), None);
-    }
-
-    /// Grey is a pad treatment only. An ini naming a grey deck must not leave
-    /// the dropdown showing a choice it cannot offer back.
-    #[test]
-    fn a_grey_deck_opens_as_the_theme_default() {
-        let mut config = AppConfig::default();
-        config.ui.pad_style = SurfaceChoice::Grey;
-        config.ui.deck_style = SurfaceChoice::Grey;
-        let dialog = SettingsDialog::new(&config, Vec::new());
-
-        assert_eq!(dialog.pad_style, SurfaceChoice::Grey, "pads keep grey");
-        assert_eq!(dialog.deck_style, SurfaceChoice::ThemeDefault);
-        assert_eq!(dialog.original_skin().2, SurfaceChoice::ThemeDefault);
-        // ...and opening then closing changes nothing.
         assert_eq!(previewed(dialog.preview(dialog.skin(), true, false)), None);
     }
 

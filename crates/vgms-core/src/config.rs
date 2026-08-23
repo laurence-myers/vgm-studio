@@ -393,22 +393,6 @@ impl SurfaceChoice {
         Self::Grey,
         Self::Tint,
     ];
-
-    /// What the *deck* offers. A grey deck reads as flat and dirty under every
-    /// plate, so it is not one of the treatments the deck can take.
-    pub const DECK: [Self; 4] = [Self::ThemeDefault, Self::Light, Self::Dark, Self::Tint];
-
-    /// `self` as the deck can express it. [`Self::Grey`] is not a deck
-    /// treatment, so it falls back to the theme's own choice -- an ini written
-    /// by hand (or by an older build) can still name it without painting one.
-    #[must_use]
-    pub fn for_deck(self) -> Self {
-        if self == Self::Grey {
-            Self::ThemeDefault
-        } else {
-            self
-        }
-    }
 }
 
 impl core::fmt::Display for SurfaceChoice {
@@ -456,8 +440,6 @@ pub struct UiConfig {
     pub theme: ThemeChoice,
     /// Overrides the theme's keycap treatment.
     pub pad_style: SurfaceChoice,
-    /// Overrides the theme's control-panel (deck) treatment.
-    pub deck_style: SurfaceChoice,
 }
 
 impl Default for UiConfig {
@@ -468,7 +450,6 @@ impl Default for UiConfig {
             tail_length: 3000,
             theme: ThemeChoice::default(),
             pad_style: SurfaceChoice::default(),
-            deck_style: SurfaceChoice::default(),
         }
     }
 }
@@ -632,9 +613,6 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "ui", "pad_style") {
             self.ui.pad_style = parse(value, "ui.pad_style")?;
         }
-        if let Some(value) = lookup(&ini, "ui", "deck_style") {
-            self.ui.deck_style = parse(value, "ui.deck_style")?;
-        }
         if let Some(value) = lookup(&ini, "optimize", "optimizer") {
             self.optimizer = parse(value, "optimize.optimizer")?;
         }
@@ -695,10 +673,9 @@ impl AppConfig {
              # Colour scheme (case): navy, cream, verdigris, moss, plum, rust,\n\
              # petrol, slate, olive, wine, clone-dark, ft2-classic.\n\
              theme={theme}\n\
-             # Override the theme's keycap / control-panel treatment:\n\
+             # Override the theme's keycap treatment:\n\
              # default (leave the theme alone), light, dark, grey or tint.\n\
              pad_style={pad_style}\n\
-             deck_style={deck_style}\n\
              \n\
              [optimize]\n\
              # Which optimiser compresses a VGM on pack export and Edit >\n\
@@ -731,7 +708,6 @@ impl AppConfig {
             dro_info_edit_enabled = self.ui.dro_info_edit_enabled,
             theme = self.ui.theme,
             pad_style = self.ui.pad_style,
-            deck_style = self.ui.deck_style,
             optimizer = self.optimizer,
         )
     }
@@ -1131,9 +1107,8 @@ mod tests {
                 maximize_window: true,
                 tail_length: 5000,
                 theme: ThemeChoice::Ft2Classic,
-                // Non-default, so the round-trip actually exercises them.
+                // Non-default, so the round-trip actually exercises it.
                 pad_style: SurfaceChoice::Light,
-                deck_style: SurfaceChoice::Dark,
             },
             // Non-default, so the round-trip carries it.
             optimizer: OptimizerChoice::Tools,

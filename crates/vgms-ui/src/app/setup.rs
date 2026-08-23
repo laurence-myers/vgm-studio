@@ -114,19 +114,16 @@ impl VgmStudioApp {
 
     /// The skin on screen: the Settings dialog's live preview if one is up,
     /// else the saved settings.
-    pub(super) fn shown_skin(&self) -> (ThemeChoice, SurfaceChoice, SurfaceChoice) {
-        self.skin_preview.unwrap_or((
-            self.config.ui.theme,
-            self.config.ui.pad_style,
-            self.config.ui.deck_style,
-        ))
+    pub(super) fn shown_skin(&self) -> (ThemeChoice, SurfaceChoice) {
+        self.skin_preview
+            .unwrap_or((self.config.ui.theme, self.config.ui.pad_style))
     }
 
-    /// The active colour scheme, with the configured pad/deck overrides applied.
-    /// Owned rather than borrowed: the overrides make it a per-config value, not
-    /// one of the twelve static case palettes.
+    /// The active colour scheme, with the configured pad override applied. Owned
+    /// rather than borrowed: the override makes it a per-config value, not one of
+    /// the twelve static case palettes.
     pub(super) fn palette(&self) -> Palette {
-        let (theme, pad, deck) = self.shown_skin();
-        theme::palette_with(theme, pad, deck)
+        let (theme, pad) = self.shown_skin();
+        theme::palette_with(theme, pad)
     }
 }

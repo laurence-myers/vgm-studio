@@ -569,7 +569,6 @@ pub(crate) const SETTINGS_TAIL_LENGTH_HOVER: &str =
     "How much the \"play last X seconds\" button plays";
 pub(crate) const SETTINGS_THEME_HOVER: &str = "The case colour.";
 pub(crate) const SETTINGS_PAD_STYLE_HOVER: &str = "The keycap colour.";
-pub(crate) const SETTINGS_DECK_STYLE_HOVER: &str = "The panel the pads sit on.";
 pub(crate) const SETTINGS_INVALID_TITLE: &str = "Invalid settings";
 pub(crate) const SETTINGS_INVALID_NUMBERS: &str = "Check that the entered values are numbers.";
 

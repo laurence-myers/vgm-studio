@@ -23,16 +23,15 @@ follow. Buttons are backlit **pads** with line icons, not plate-buttons.
   independent of the plate. `Surface = Light | Dark | Grey | Tint`: Tint follows
   the plate; Light/Dark/Grey are fixed presets. Resolved at paint time by
   `palette::pad_caps` / `palette::deck_stops`. There are **no** explicit
-  `pad_cap_*` roles. Either can be **overridden from Settings** via
-  `SurfaceChoice` (theme default / light / dark / tint), stored as
-  `pad_style` / `deck_style` in `[ui]` and applied by `theme::palette_with` --
-  so the app's palette is an owned per-config value, not one of the statics.
-  The Light preset is a neutral white/grey for both (a cream one fought the
-  cool plates); the deck sits a shade darker than the caps, so pads read raised.
-  **Grey is a pad treatment only** (it reads flat and dirty as a deck): the deck
-  dropdown iterates `SurfaceChoice::DECK`, and `for_deck()` folds a grey
-  `deck_style` from a hand-edited ini back to the theme default.
-- **Live preview.** Theme/Pad/Deck apply as they are picked in Settings and
+  `pad_cap_*` roles. The **pad** treatment can be **overridden from Settings**
+  via `SurfaceChoice` (theme default / light / dark / grey / tint), stored as
+  `pad_style` in `[ui]` and applied by `theme::palette_with` -- so the app's
+  palette is an owned per-config value, not one of the statics. The Light preset
+  is a neutral white/grey (a cream one fought the cool plates); the deck sits a
+  shade darker than the caps, so pads read raised. The **deck** is not separately
+  overridable: it keeps whatever `Surface` its theme specifies (the light/dark
+  deck presets read poorly, so the chooser was dropped).
+- **Live preview.** Theme/Pad apply as they are picked in Settings and
   revert on Close (`Action::PreviewSkin` → `VgmStudioApp::preview_skin`). The preview
   is held in `VgmStudioApp::skin_preview`, which `palette()` prefers, and deliberately
   **not** in `config` -- the volume lever persists `config` from under us, so a

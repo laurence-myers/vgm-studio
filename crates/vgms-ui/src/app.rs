@@ -391,9 +391,9 @@ pub struct VgmStudioApp {
     /// dropped if it fails), so undo only ever reverses edits that landed.
     pending_pack_undo: Option<PackTransaction>,
     /// A skin the Settings dialog is showing but has not saved, as
-    /// `(theme, pad_style, deck_style)`. `None` whenever the window is painted
-    /// in the saved settings. See [`Self::preview_skin`].
-    skin_preview: Option<(ThemeChoice, SurfaceChoice, SurfaceChoice)>,
+    /// `(theme, pad_style)`. `None` whenever the window is painted in the saved
+    /// settings. See [`Self::preview_skin`].
+    skin_preview: Option<(ThemeChoice, SurfaceChoice)>,
 
     /// A `.zip` held behind the discard-changes prompt when a dirty pack is open.
     pending_zip: Option<PickedFile>,
