@@ -1,0 +1,95 @@
+name: Deploy to GitHub Pages
+
+# Manual only: the site is published on demand, never on push. Kick it off from
+# the Actions tab (Run workflow) once a build is worth releasing.
+on:
+  workflow_dispatch:
+
+# The permissions actions/deploy-pages needs: read the repo, write the Pages
+# deployment, and mint the OIDC token that authorises it.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One live deployment at a time; a newer run supersedes an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build the web bundle
+    runs-on: ubuntu-latest
+
+    steps:
+      # `submodules: recursive`: the C sound cores and the vgmtools optimisers
+      # build from vendor/upstream submodules, so the wasm build needs them.
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Caches the cargo registry, git deps and the target dir (and the
+      # wasm-bindgen-cli binary below) across runs.
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # The C sound cores compile to wasm through clang (`-ffreestanding`); the
+      # worklet and app modules link them. lld is wasm-ld for the wasip1 tool
+      # build, and binaryen gives build-web.ps1 the wasm-opt it uses to shrink
+      # the ~12.7 MB app module.
+      - name: Install clang, lld and binaryen
+        run: sudo apt-get update && sudo apt-get install -y clang lld binaryen
+
+      # The CLI's version must match the `wasm-bindgen` version Cargo.lock
+      # resolves (pinned `=0.2.126` in vgms-web), or the generated glue will not
+      # load. Bump both together.
+      - name: Install wasm-bindgen-cli
+        run: cargo install wasm-bindgen-cli --version 0.2.126 --locked
+
+      # The wasip1 optimiser modules (the pack-mode optimisers) need the wasi-sdk
+      # sysroot + builtins (~120 MB). Cache them keyed on the version pinned in
+      # the build script, so bumping $wasiVersion there rolls the cache with it.
+      - name: Read the pinned wasi-sdk version
+        id: wasi-sdk
+        run: |
+          version="$(grep -oP '(?<=\$wasiVersion = ")[^"]+' tools/build-wasi-tools.ps1)"
+          test -n "$version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the wasi sysroot and builtins
+        uses: actions/cache@v4
+        with:
+          path: target/wasi
+          key: wasi-sdk-${{ steps.wasi-sdk.outputs.version }}
+
+      # One source of truth for the servable bundle: the same script the native
+      # build runs (pwsh is pre-installed on the runner). It assembles the app
+      # module, the AudioWorklet, the optimiser modules, the workers, the page
+      # and the licence notices into target/web-dist.
+      - name: Build the web bundle
+        shell: pwsh
+        run: ./tools/build-web.ps1
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/web-dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
