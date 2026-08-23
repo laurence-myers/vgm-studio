@@ -5,6 +5,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
     <title>VGM Studio</title>
+    <!-- The app icon (the same "Caret" mark the native window and taskbar use).
+         SVG for crisp scaling; the .ico is the fallback for browsers that don't
+         take SVG favicons. Neither lives in web/: build-web.ps1 copies them in
+         from docs/skinning/vgmstudio-icon.svg and src/vgmstudio.ico. -->
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <link rel="icon" type="image/x-icon" href="./favicon.ico" />
     <style>
       html,
       body {

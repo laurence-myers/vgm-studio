@@ -88,6 +88,10 @@ if (-not $SkipWasiTools) {
 # the pack worker imports. `web/` holds exactly the browser files now that the
 # e2e harness lives in `web-e2e/`, so a recursive copy is correct by construction.
 Copy-Item (Join-Path $root "web/*") $dist -Recurse -Force
+# The favicon: the app icon the page links as ./favicon.svg / ./favicon.ico,
+# taken from its existing homes so the repo keeps one copy of each.
+Copy-Item (Join-Path $root "docs/skinning/vgmstudio-icon.svg") (Join-Path $dist "favicon.svg") -Force
+Copy-Item (Join-Path $root "src/vgmstudio.ico") (Join-Path $dist "favicon.ico") -Force
 # The licences: the distributed bundle is GPL-2.0-or-later, same as the exe.
 Copy-Item (Join-Path $root "licenses") (Join-Path $dist "licenses") -Recurse -Force
 
