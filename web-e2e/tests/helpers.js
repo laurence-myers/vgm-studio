@@ -18,11 +18,49 @@ export const FIXTURE_VGM = fileURLToPath(
  * @returns the initial state snapshot.
  */
 export async function boot(page) {
+  // Everything the page says during boot, so a failed boot explains itself
+  // (eframe logs through `console`, and the panic hook reports there too).
+  const log = [];
+  page.on("console", (message) => log.push(`[${message.type()}] ${message.text()}`));
+  page.on("pageerror", (error) => log.push(`[pageerror] ${error}`));
+  page.on("requestfailed", (request) =>
+    log.push(`[requestfailed] ${request.url()} ${request.failure()?.errorText ?? ""}`),
+  );
+
   await page.goto("/index.html");
-  await page.waitForFunction(() => Boolean(window.__vgms_e2e), null, {
-    timeout: 45_000,
-  });
+  try {
+    await page.waitForFunction(() => Boolean(window.__vgms_e2e), null, {
+      timeout: 45_000,
+    });
+  } catch (error) {
+    // The hook lives inside eframe's creator, so "never appeared" nearly always
+    // means the canvas never came up. Say what the browser had to offer.
+    const probe = await page.evaluate(probeRenderer).catch((e) => `probe failed: ${e}`);
+    error.message += `\n\n--- renderer probe ---\n${JSON.stringify(probe, null, 2)}`;
+    error.message += `\n\n--- page console (${log.length}) ---\n${log.join("\n") || "(nothing)"}`;
+    throw error;
+  }
   return page.evaluate(() => window.__vgms_e2e.state());
+}
+
+/** Runs in-page: what WebGL/WebGPU this browser can give eframe. */
+function probeRenderer() {
+  const renderer = (gl) => {
+    if (!gl) return null;
+    const debug = gl.getExtension("WEBGL_debug_renderer_info");
+    return debug
+      ? gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)
+      : gl.getParameter(gl.RENDERER);
+  };
+  const canvas = document.createElement("canvas");
+  return {
+    userAgent: navigator.userAgent,
+    webgl2: renderer(canvas.getContext("webgl2")),
+    webgl1: renderer(document.createElement("canvas").getContext("webgl")),
+    webgpu: "gpu" in navigator,
+    crossOriginIsolated: globalThis.crossOriginIsolated,
+    loadingText: document.getElementById("vgms-loading")?.textContent ?? null,
+  };
 }
 
 /** Dispatches an action through the hook. */
