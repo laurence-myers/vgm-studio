@@ -73,3 +73,122 @@ pub(crate) fn optimized(
     file.optimize()?;
     vgms_core::vgm::file::write(&file).ok()
 }
+
+/// What a verified optimise did, once the render gate has had its say.
+///
+/// The gate ([`vgms_synth::renders_identically`]) renders the original and the
+/// optimised file and requires identical samples before the smaller file is
+/// accepted; a difference keeps the original, never fatally (D-orw-4).
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone)]
+pub enum VerifiedOutcome {
+    /// The pass shrank the file and both renders matched: the bytes are safe to
+    /// write in place.
+    Optimized(Vec<u8>),
+    /// The pass found nothing to gain -- the file is already optimal. The
+    /// original is kept.
+    Unchanged,
+    /// The pass shrank the file but the renders diverged: the original is kept,
+    /// and the verdict says where they parted.
+    KeptOriginal(vgms_synth::Verdict),
+    /// The pass shrank the file but its output (or the original) could not be
+    /// read back to render, so the change could not be verified. The original is
+    /// kept.
+    Unverifiable(String),
+}
+
+/// The result of [`optimize_verified`]: the pass's stages (for a log) and what
+/// the render gate concluded.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug, Clone)]
+pub struct VerifiedOptimized {
+    /// The size before the pass, for a savings figure.
+    pub original_len: usize,
+    /// Every pipeline stage in the order it ran.
+    pub stages: Vec<vgms_vgmtools::Stage>,
+    /// What became of the file.
+    pub outcome: VerifiedOutcome,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl VerifiedOptimized {
+    /// The bytes safe to write in place, or `None` when the original must be
+    /// kept (unchanged, a failed verification, or an unverifiable result).
+    #[must_use]
+    pub fn accepted_bytes(&self) -> Option<&[u8]> {
+        match &self.outcome {
+            VerifiedOutcome::Optimized(bytes) => Some(bytes),
+            _ => None,
+        }
+    }
+
+    /// How many bytes the accepted result saved, or `0` when nothing was
+    /// accepted.
+    #[must_use]
+    pub fn saved(&self) -> usize {
+        self.accepted_bytes()
+            .map_or(0, |bytes| self.original_len.saturating_sub(bytes.len()))
+    }
+}
+
+/// Optimises `bytes` and verifies the result by rendering: the original and the
+/// optimised file are rendered through the real engine and must produce
+/// identical samples before the smaller file is accepted (D-orw-1). A
+/// difference -- or an unreadable result -- keeps the original bytes and says
+/// so, never fatally (D-orw-4).
+///
+/// `bytes` are plain (uncompressed) VGM bytes, as the tools take them.
+/// Rendering uses the ambient core registry, so the caller must have installed
+/// cores; a shell that has not would render silence on both sides and accept
+/// everything, which is why this only runs where playback does. Native-only
+/// (D-orw-7): the web pack path stays ungated for now.
+#[cfg(not(target_arch = "wasm32"))]
+#[must_use]
+pub fn optimize_verified(
+    bytes: &[u8],
+    options: vgms_vgmtools::Options,
+    tools: &dyn vgms_vgmtools::Tools,
+    verify: vgms_synth::VerifyOptions,
+) -> VerifiedOptimized {
+    use std::sync::Arc;
+
+    let result = vgms_vgmtools::optimize_vgm_with(bytes, options, tools);
+    let original_len = result.original_len;
+
+    if !result.changed() {
+        // Nothing was dropped, so there is nothing to be wrong about -- and
+        // nothing to render.
+        return VerifiedOptimized {
+            original_len,
+            stages: result.stages,
+            outcome: VerifiedOutcome::Unchanged,
+        };
+    }
+
+    // The two sides: the original bytes as handed in, and what the pass made.
+    let read = |label: &str, raw: &[u8]| -> Result<Arc<vgms_core::vgm::VgmFile>, String> {
+        vgms_core::vgm::file::read("optimizing.vgm", raw)
+            .map(Arc::new)
+            .map_err(|error| format!("the {label} file no longer reads: {error}"))
+    };
+    let (original, candidate) = match (read("original", bytes), read("optimized", &result.bytes)) {
+        (Ok(original), Ok(candidate)) => (original, candidate),
+        (Err(reason), _) | (_, Err(reason)) => {
+            return VerifiedOptimized {
+                original_len,
+                stages: result.stages,
+                outcome: VerifiedOutcome::Unverifiable(reason),
+            };
+        }
+    };
+
+    let outcome = match vgms_synth::renders_identically(&original, &candidate, verify) {
+        vgms_synth::Verdict::Identical => VerifiedOutcome::Optimized(result.bytes),
+        differs => VerifiedOutcome::KeptOriginal(differs),
+    };
+    VerifiedOptimized {
+        original_len,
+        stages: result.stages,
+        outcome,
+    }
+}
