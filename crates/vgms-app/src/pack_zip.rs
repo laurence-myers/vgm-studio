@@ -32,6 +32,8 @@ impl SongOptimizer for NativeSongOptimizer {
                 optimizer: self.optimizer,
                 sample_roms: self.sample_roms,
                 dac_runs: self.dac_runs,
+                // The export is unverified, so the hold-backs stand.
+                ..Default::default()
             },
             &vgms_vgmtools::NativeTools,
             log,

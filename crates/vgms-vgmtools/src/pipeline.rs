@@ -127,6 +127,15 @@ pub struct Options {
     /// per-file routing between them. The `sample_roms`/`dac_runs` flags only
     /// bite when the tools run.
     pub optimizer: vgms_core::config::OptimizerChoice,
+    /// Run the per-chip hold-backs speculatively (D-orw-8): let `vgm_sro` run on
+    /// the chips it is otherwise denied (QSound / K053260 / SegaPCM), and
+    /// `vgm_cmp` on an SAA1099. Only ever set by a caller that renders and
+    /// verifies the output afterwards ([`optimize_verified`](../../vgms_ui) sets
+    /// it) -- the blanket denials are there because *some* files corrupt, and the
+    /// render gate turns a blanket denial into try-and-keep-if-it-matches, per
+    /// file. The bottomless-ROM guard is **not** lifted: it prevents a hang, not
+    /// a wrong answer, so it stands whatever this says.
+    pub speculative: bool,
 }
 
 impl Default for Options {
@@ -135,6 +144,9 @@ impl Default for Options {
             sample_roms: true,
             dac_runs: true,
             optimizer: vgms_core::config::OptimizerChoice::Auto,
+            // Off by default: the hold-backs deny a stage unless a caller has a
+            // render gate to catch a corruption.
+            speculative: false,
         }
     }
 }
@@ -247,17 +259,21 @@ pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Opt
             });
         }
         // Before vgm_cmp, on the wiki's order: the trim reads the ROM out of
-        // the write history, and that history should be the file's own.
+        // the write history, and that history should be the file's own. The
+        // bottomless-ROM guard always denies; the per-chip hold-back is lifted
+        // when the caller will verify the render (D-orw-8).
         if options.sample_roms {
-            run_stage(
-                "vgm_sro",
-                facts.rom_trim_denied,
-                &mut bytes,
-                &mut stages,
-                |b| tools.trim_sample_roms(b),
-            );
+            let rom_skip = facts.rom_trim_bottomless.or(if options.speculative {
+                None
+            } else {
+                facts.rom_trim_chip_denied
+            });
+            run_stage("vgm_sro", rom_skip, &mut bytes, &mut stages, |b| {
+                tools.trim_sample_roms(b)
+            });
         }
-        let skip = facts.has_saa1099.then_some(SAA1099_HELD_BACK);
+        // The SAA1099 hold-back, likewise lifted under the render gate.
+        let skip = (!options.speculative && facts.has_saa1099).then_some(SAA1099_HELD_BACK);
         run_stage("vgm_cmp", skip, &mut bytes, &mut stages, |b| {
             tools.optimize_writes(b)
         });
@@ -425,8 +441,14 @@ struct Facts {
     built_in_covers_all: bool,
     has_ym2612: bool,
     has_saa1099: bool,
-    /// Why the sample-ROM trim must not run, if it must not.
-    rom_trim_denied: Option<&'static str>,
+    /// Why the sample-ROM trim can never run on this file: a bottomless ROM the
+    /// trim's size rounding cannot terminate on. Not lifted by the speculative
+    /// mode -- it prevents a hang, not merely a wrong answer.
+    rom_trim_bottomless: Option<&'static str>,
+    /// Why the sample-ROM trim is held back for this file's chips (QSound /
+    /// K053260 / SegaPCM). Lifted by the speculative mode, where a render gate
+    /// catches a bad trim per file.
+    rom_trim_chip_denied: Option<&'static str>,
 }
 
 impl Facts {
@@ -435,12 +457,18 @@ impl Facts {
             // Unreadable here does not mean unusable to the tools -- they have
             // their own reader. Let the stages try, but keep the hold-backs:
             // they exist to prevent a wrong answer, not to save work, and a
-            // file we cannot read is the last one to take a chance on.
+            // file we cannot read is the last one to take a chance on. Charge
+            // the denial to the chip category, so the render gate can still try
+            // it speculatively -- an unreadable header is a wrong-answer risk,
+            // not a hang.
             return Self {
                 built_in_covers_all: false,
                 has_ym2612: true,
                 has_saa1099: true,
-                rom_trim_denied: Some("the header could not be read, so its chips are unknown"),
+                rom_trim_bottomless: None,
+                rom_trim_chip_denied: Some(
+                    "the header could not be read, so its chips are unknown",
+                ),
             };
         };
         let declares = |kind| file.header.chips().iter().any(|chip| chip.kind == kind);
@@ -452,16 +480,11 @@ impl Facts {
                     .all(|chip| vgms_core::chip_state::has_latch_rules(chip.kind)),
             has_ym2612: declares(ChipKind::Ym2612),
             has_saa1099: declares(ChipKind::Saa1099),
-            // The bottomless-ROM guard takes precedence: it prevents a hang, not
-            // merely a wrong answer, so it is the more urgent reason to skip.
-            rom_trim_denied: if declares_bottomless_rom(&file) {
-                Some(BOTTOMLESS_ROM)
-            } else {
-                ROM_TRIM_DENIED
-                    .iter()
-                    .find(|(kind, _)| declares(*kind))
-                    .map(|(_, reason)| *reason)
-            },
+            rom_trim_bottomless: declares_bottomless_rom(&file).then_some(BOTTOMLESS_ROM),
+            rom_trim_chip_denied: ROM_TRIM_DENIED
+                .iter()
+                .find(|(kind, _)| declares(*kind))
+                .map(|(_, reason)| *reason),
         }
     }
 }
@@ -568,19 +591,73 @@ mod tests {
     fn a_bottomless_rom_block_denies_the_sample_rom_trim() {
         let facts = Facts::read(&segapcm_vgm(ROM_SIZE_CEILING));
         assert_eq!(
-            facts.rom_trim_denied,
+            facts.rom_trim_bottomless,
             Some(BOTTOMLESS_ROM),
-            "a 2 GiB ROM must deny vgm_sro, ahead of the SegaPCM chip reason"
+            "a 2 GiB ROM must deny vgm_sro through the hang guard"
         );
     }
 
     #[test]
     fn a_normal_rom_size_does_not_trip_the_bottomless_guard() {
         let facts = Facts::read(&segapcm_vgm(0x0006_0000));
-        assert_ne!(
-            facts.rom_trim_denied,
-            Some(BOTTOMLESS_ROM),
+        assert_eq!(
+            facts.rom_trim_bottomless, None,
             "a 0x60000 ROM is normal; the bottomless guard must stay quiet"
+        );
+        // But SegaPCM is a chip hold-back -- denied normally, tried speculatively.
+        assert!(
+            facts.rom_trim_chip_denied.is_some(),
+            "SegaPCM's ROM trim is held back for the chip's sake"
+        );
+    }
+
+    /// The speculative mode lifts the per-chip ROM hold-back but never the
+    /// bottomless-ROM hang guard.
+    #[test]
+    fn speculative_lifts_the_chip_holdback_but_not_the_hang_guard() {
+        use crate::ToolOutcome;
+
+        /// A `Tools` that records whether `vgm_sro` was actually invoked.
+        struct RomTap {
+            trimmed: std::cell::Cell<bool>,
+        }
+        impl Tools for RomTap {
+            fn optimize_writes(&self, _vgm: &[u8]) -> ToolOutcome {
+                ToolOutcome::Unchanged
+            }
+            fn trim_sample_roms(&self, _vgm: &[u8]) -> ToolOutcome {
+                self.trimmed.set(true);
+                ToolOutcome::Unchanged
+            }
+            fn clean_dac_runs(&self, _vgm: &[u8]) -> ToolOutcome {
+                ToolOutcome::Unchanged
+            }
+        }
+
+        let speculative = Options {
+            optimizer: vgms_core::config::OptimizerChoice::Tools,
+            speculative: true,
+            ..Options::default()
+        };
+
+        // SegaPCM: a chip hold-back. Normally denied; run under speculative.
+        let tap = RomTap {
+            trimmed: std::cell::Cell::new(false),
+        };
+        let _ = optimize_vgm_with(&segapcm_vgm(0x0006_0000), speculative, &tap);
+        assert!(
+            tap.trimmed.get(),
+            "the chip hold-back is lifted speculatively"
+        );
+
+        // A bottomless ROM: the hang guard denies it even speculatively.
+        let tap = RomTap {
+            trimmed: std::cell::Cell::new(false),
+        };
+        let _ = optimize_vgm_with(&segapcm_vgm(ROM_SIZE_CEILING), speculative, &tap);
+        assert!(
+            !tap.trimmed.get(),
+            "the bottomless-ROM guard stands even under the render gate"
         );
     }
 }

@@ -134,6 +134,7 @@ fn tools_only() -> Options {
         sample_roms: false,
         dac_runs: false,
         optimizer: vgms_core::config::OptimizerChoice::Tools,
+        ..Default::default()
     }
 }
 

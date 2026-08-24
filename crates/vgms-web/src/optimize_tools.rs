@@ -160,6 +160,8 @@ impl SongOptimizer for WebPipelineOptimizer {
                 optimizer: self.optimizer,
                 sample_roms: self.sample_roms,
                 dac_runs: self.dac_runs,
+                // The web export is unverified, so the hold-backs stand.
+                ..Default::default()
             },
             &self.tools,
             log,

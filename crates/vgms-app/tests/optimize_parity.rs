@@ -90,6 +90,9 @@ fn an_optimised_file_renders_to_the_same_samples() {
         dac_runs: std::env::var_os("VGMSTUDIO_NO_DAC_CLEAN").is_none(),
         // Force the tools so this measures them, not the built-in routing.
         optimizer: vgms_core::config::OptimizerChoice::Tools,
+        // This test measures the tools' hold-backs as they ship (denied); the
+        // speculative try-and-verify path is exercised by optimize_verified.
+        ..Default::default()
     };
     println!(
         "stages: vgm_cmp always; vgm_sro {}; optdac {}",

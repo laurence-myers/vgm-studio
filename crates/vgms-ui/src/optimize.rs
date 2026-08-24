@@ -65,6 +65,7 @@ pub(crate) fn optimized_editor(
         optimizer,
         sample_roms,
         dac_runs,
+        ..Default::default()
     };
     let verified = optimize_verified(
         bytes,
@@ -180,6 +181,13 @@ pub fn optimize_verified(
 ) -> VerifiedOptimized {
     use std::sync::Arc;
 
+    // This path renders and compares, so the per-chip hold-backs can run
+    // speculatively -- a bad trim or dedup is caught by the gate, per file
+    // (D-orw-8). The blanket denials stay only on the unverified export path.
+    let options = vgms_vgmtools::Options {
+        speculative: true,
+        ..options
+    };
     let result = vgms_vgmtools::optimize_vgm_with(bytes, options, tools);
     let original_len = result.original_len;
 
@@ -262,6 +270,8 @@ pub fn optimize_song_verified(
         sample_roms: request.sample_roms,
         dac_runs: request.dac_runs,
         optimizer: request.optimizer,
+        // `optimize_verified` turns the speculative mode on for the verified path.
+        ..Default::default()
     };
     let verify = vgms_synth::VerifyOptions::new(request.output_rate);
     let verified = optimize_verified(&plain, options, &vgms_vgmtools::NativeTools, verify);

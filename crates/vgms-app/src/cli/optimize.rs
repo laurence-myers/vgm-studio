@@ -71,6 +71,8 @@ pub fn run(args: &Args) -> Result<()> {
         // The CLI takes the routing default (built-in where it covers the file,
         // the tools as fallback). The GUI's Settings choice is a GUI concern.
         optimizer: vgms_core::config::OptimizerChoice::Auto,
+        // No render gate here, so the hold-backs stand.
+        ..Default::default()
     };
     let mut result = vgms_vgmtools::optimize_vgm(&plain, options);
 
