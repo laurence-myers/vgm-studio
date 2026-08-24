@@ -198,13 +198,39 @@ fn nothing_to_gain_reports_unchanged_without_rendering() {
     assert_eq!(result.accepted_bytes(), None);
 }
 
-/// The corpus spot-check: over real files, `optimize_verified` with the real
-/// tools must accept every shrink (`optimize_parity` is green on this corpus, so
-/// nothing the tools do here changes a render). A file kept back would be a
-/// genuine tool regression the parity gate also flags.
+/// The chips `vgm_sro` / `vgm_cmp` are otherwise held back on -- the ones the
+/// speculative path tries and the gate then keeps or rejects (D-orw-8).
+fn has_held_back_chip(file: &vgms_core::vgm::VgmFile) -> bool {
+    use vgms_core::ChipKind::{K053260, QSound, Saa1099, SegaPcm};
+    file.header
+        .chips()
+        .iter()
+        .any(|chip| matches!(chip.kind, QSound | K053260 | SegaPcm | Saa1099))
+}
+
+fn declares(file: &vgms_core::vgm::VgmFile, kind: ChipKind) -> bool {
+    file.header.chips().iter().any(|chip| chip.kind == kind)
+}
+
+/// The Stage 4 measurement (D-orw-8): run the verified path -- which is
+/// speculative, so it *attempts* the held-back stages -- over the corpus and
+/// tally what the render gate then does. Prints the numbers the plan's addendum
+/// wants: how many previously-denied files the gate recovers (s4-1), and how
+/// many corruptions it catches (s4-2, chiefly the vgm_cmp first-pass YM2612 bug).
+///
+/// The one hard invariant: a file with none of the risky stages (no held-back
+/// chip, no YM2612) must never be kept back -- the tools are trusted there, so a
+/// rejection would be a real regression. Everything else is measurement, not a
+/// pass/fail: a kept-back QSound or YM2612 file is the gate working.
+///
+/// ```text
+/// VGMSTUDIO_VGMRIPS_CORPUS=F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17 \
+///     cargo test -p vgms-app --release --test optimize_verified \
+///     -- --ignored --nocapture the_verified_path
+/// ```
 #[test]
 #[ignore = "needs VGMSTUDIO_VGMRIPS_CORPUS"]
-fn the_verified_path_accepts_what_the_parity_gate_accepts() {
+fn the_verified_path_recovers_holdbacks_and_catches_corruptions() {
     let root = PathBuf::from(
         std::env::var_os("VGMSTUDIO_VGMRIPS_CORPUS")
             .expect("VGMSTUDIO_VGMRIPS_CORPUS must name the corpus directory to run this test"),
@@ -212,18 +238,28 @@ fn the_verified_path_accepts_what_the_parity_gate_accepts() {
     let limit: usize = std::env::var("VGMSTUDIO_CORPUS_LIMIT")
         .ok()
         .and_then(|value| value.parse().ok())
-        .unwrap_or(120);
+        .unwrap_or(200);
 
     vgms_app::install_cores();
     let paths = common::collect_songs_capped(&root, limit);
     assert!(!paths.is_empty(), "no VGM files under {}", root.display());
 
-    let mut accepted = 0usize;
-    let mut unchanged = 0usize;
-    let mut kept_back: Vec<String> = Vec::new();
+    let tools = Options {
+        optimizer: vgms_core::config::OptimizerChoice::Tools,
+        ..Options::default()
+    };
 
-    for path in paths {
-        let Ok(raw) = std::fs::read(&path) else {
+    let (mut accepted, mut unchanged) = (0usize, 0usize);
+    // s4-1: held-back-chip files the gate recovered (accepted a shrink the
+    // non-speculative path denied) vs kept back (the trim really did corrupt).
+    let (mut holdback_recovered, mut holdback_kept) = (0usize, 0usize);
+    // s4-2: YM2612 files kept back -- the vgm_cmp first-pass corruption, caught.
+    let mut ym2612_kept = 0usize;
+    // The invariant breach: a "safe" file (no risky stage) kept back.
+    let mut safe_kept: Vec<String> = Vec::new();
+
+    for path in &paths {
+        let Ok(raw) = std::fs::read(path) else {
             continue;
         };
         let Ok(file) = vgms_core::vgm::file::read("corpus.vgm", &raw) else {
@@ -232,38 +268,54 @@ fn the_verified_path_accepts_what_the_parity_gate_accepts() {
         let Ok(plain) = vgms_core::vgm::file::write(&file) else {
             continue;
         };
-        let result = optimize_verified(
-            &plain,
-            Options {
-                optimizer: vgms_core::config::OptimizerChoice::Tools,
-                ..Options::default()
-            },
-            &vgms_vgmtools::NativeTools,
-            VerifyOptions::default(),
-        );
+        let held_back = has_held_back_chip(&file);
+        let has_ym2612 = declares(&file, ChipKind::Ym2612);
         let name = path.file_name().map_or_else(
             || path.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
         );
+
+        let result = optimize_verified(
+            &plain,
+            tools,
+            &vgms_vgmtools::NativeTools,
+            VerifyOptions::default(),
+        );
         match result.outcome {
-            VerifiedOutcome::Optimized(_) => accepted += 1,
-            VerifiedOutcome::Unchanged => unchanged += 1,
-            VerifiedOutcome::KeptOriginal(verdict) => {
-                kept_back.push(format!("{name}: {verdict:?}"));
+            VerifiedOutcome::Optimized(bytes) => {
+                accepted += 1;
+                if held_back {
+                    // Recovered iff the held-back stage is what shrank it: the
+                    // non-speculative pass (hold-backs on) leaves those bytes.
+                    let denied = vgms_vgmtools::optimize_vgm(&plain, tools);
+                    if bytes.len() < denied.bytes.len() {
+                        holdback_recovered += 1;
+                    }
+                }
             }
-            VerifiedOutcome::Unverifiable(reason) => {
-                kept_back.push(format!("{name}: unverifiable ({reason})"));
+            VerifiedOutcome::Unchanged => unchanged += 1,
+            VerifiedOutcome::KeptOriginal(_) | VerifiedOutcome::Unverifiable(_) => {
+                if held_back {
+                    holdback_kept += 1;
+                } else if has_ym2612 {
+                    ym2612_kept += 1;
+                } else {
+                    safe_kept.push(name);
+                }
             }
         }
     }
 
-    println!(
-        "verified: {accepted} accepted, {unchanged} unchanged, {} kept back",
-        kept_back.len()
-    );
+    println!("\nStage 4 measurement over {} file(s):", paths.len());
+    println!("  accepted (verified shrink): {accepted}");
+    println!("  unchanged (nothing to gain): {unchanged}");
+    println!("  s4-1 held-back chips: {holdback_recovered} recovered, {holdback_kept} kept back");
+    println!("  s4-2 YM2612 corruptions caught: {ym2612_kept}");
+    println!("  safe files kept back (must be 0): {}", safe_kept.len());
+
     assert!(
-        kept_back.is_empty(),
-        "the verified path kept files the parity gate accepts:\n{}",
-        kept_back.join("\n")
+        safe_kept.is_empty(),
+        "the verified path kept back files with no risky stage:\n{}",
+        safe_kept.join("\n")
     );
 }

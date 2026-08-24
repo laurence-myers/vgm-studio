@@ -1,7 +1,9 @@
 # Verified, per-track optimisation
 
-**Branch:** `optimizer-rework-2026-08` · **Status:** stage 0 complete (commits
-`1655060`, `8319882`); stages 1–4 planned.
+**Branch:** `optimizer-rework-2026-08` · **Status:** stages 0–4 **complete**.
+Stage 0 landed the deterministic cores (`1655060`, `8319882`); stages 1–4 landed
+the render-verify seam, the per-track UI, the Settings switches and the
+speculative hold-backs. Corpus numbers in the *Addendum* below.
 
 ## Why
 
@@ -95,7 +97,7 @@ as dead code. Every chip is now judgeable by a render diff.
 
 ## Stages
 
-### Stage 1 — the render-verify seam
+### Stage 1 — the render-verify seam *(complete)*
 
 - **s1-1** `vgms_synth::verify`: `renders_identically(original: &VgmFile,
   candidate: &VgmFile, opts) -> Verdict`, the runtime twin of
@@ -118,7 +120,7 @@ as dead code. Every chip is now judgeable by a render diff.
 `optimize_verified` accepts what `optimize_parity` accepts and rejects a
 seeded corruption.
 
-### Stage 2 — explicit per-track optimisation
+### Stage 2 — explicit per-track optimisation *(complete)*
 
 - **s2-1** `PackService` grows the song twin of the image path:
   `optimize_song(name, bytes, options)` + a poll, running pipeline + verify off
@@ -139,7 +141,7 @@ seeded corruption.
 survives a rescan; a corrupting stage (forced via a test `Tools` impl) leaves
 the file untouched and says why.
 
-### Stage 3 — choosing what runs
+### Stage 3 — choosing what runs *(complete)*
 
 - **s3-1** Surface the switches that already exist but are hard-coded `true`
   from the UI: `Options { sample_roms, dac_runs }`, plus the existing
@@ -154,7 +156,7 @@ the file untouched and says why.
 **Exit:** unchecking a stage provably skips it (its `Skipped` line in the pack
 log), settings round-trip, UI snapshot updated once.
 
-### Stage 4 — put the gate to work
+### Stage 4 — put the gate to work *(complete)*
 
 - **s4-1** Try-and-verify the hold-backs (D-orw-8) in the verified path:
   `vgm_sro` on QSound / K053260 / SegaPCM, `vgm_cmp` on SAA1099. The pipeline
@@ -170,6 +172,75 @@ log), settings round-trip, UI snapshot updated once.
 **Exit:** corpus numbers in this doc's addendum: files recovered by s4-1,
 corruptions caught by s4-2, wall-clock cost of a verified all-tracks sweep on a
 representative pack.
+
+## Addendum — what shipped
+
+The four stages landed as these commits on the branch:
+
+- **Stage 1** — `vgms_synth::verify` (`renders_identically` / `Verdict`, two
+  threads over a bounded channel, intro + one extra loop pass, 30-min ceiling)
+  and the render-gated wrapper `vgms_ui::optimize::optimize_verified`
+  (`VerifiedOutcome`), with the licence wall keeping the composition out of
+  `vgms-vgmtools`.
+- **Stage 2** — `PackService::optimize_song` off the UI thread; a per-track
+  **Optimize** row action and an **Optimize All** serial sweep (native-only,
+  D-orw-7), written back in place with a reversible transaction; a savings
+  column on the Tracks table (`PackState::optimize_results`, keyed by file
+  name); Edit > Optimize verified (`OptimizeVgmOutcome`); the two gestures in
+  the Help dialog.
+- **Stage 3** — `AppConfig::optimize_sample_roms` / `optimize_dac_runs` (both
+  default on), a Settings **Tool stages** group, threaded through the per-track
+  path, the editor, the pack export (`PackJobRequest` + `build_pack_zip`) and
+  the web codec/worker.
+- **Stage 4** — `Options::speculative`, set by `optimize_verified` only, lifting
+  the per-chip hold-backs under the render gate while the bottomless-ROM hang
+  guard stands.
+
+### Corpus measurement
+
+`vgms-app/tests/optimize_verified.rs ::
+the_verified_path_recovers_holdbacks_and_catches_corruptions` runs the verified
+(speculative) path — forced `optimizer: Tools` — over a corpus subtree and
+tallies what the render gate then does; the `optimize_parity` suite is the
+non-speculative baseline. Measured over `F:/…/VGMRips_all_of_them_2025-10-17`
+(release, 2026-08-24), by subtree:
+
+| subtree (chips)                       | files | accepted | unchanged | held-back tried→kept / recovered | YM2612 caught | safe wrongly kept | wall  |
+|---------------------------------------|------:|---------:|----------:|:--------------------------------:|--------------:|------------------:|------:|
+| root, first 150 (OPL / SN / YM2151)   |   150 |       51 |        97 |             2 → 2 / 0            |             0 |                 0 | 170 s |
+| `MegaDrive` (YM2612 + SN76489)        |   120 |        3 |         5 |               — / —              |       **112** |                 0 | 122 s |
+| `Arcade/Capcom` (CPS1: YM2151+OKI)    |   120 |       40 |        80 |               — / —              |             0 |                 0 | 109 s |
+| `Arcade/Capcom/AvP` (CPS2: QSound)    |    26 |        0 |        24 |             2 → 2 / 0            |             0 |                 0 |  16 s |
+| `Arcade/SegaSys` (SegaPCM + FM)       |   120 |        3 |       111 |             6 → 6 / 0            |             0 |                 0 | 494 s |
+
+- **s4-2 — corruptions caught.** On the Mega Drive subtree the gate kept **112
+  of 120** YM2612 files back: the tools' first-pass OPN2 corruption, caught per
+  file instead of shipped. This is not a loop-coverage artifact — the
+  independent `optimize_parity` (8 s, no loop) run over the *same* 120 files
+  fails its "renders identically" assertion too. The verified path is in fact
+  *faster* there (122 s vs 341 s) because it early-bails at the first differing
+  sample where parity renders the full window. The non-YM2612 arcade subtree
+  (Capcom CPS1, YM2151 + OKIM6295) is the control: **0** kept back, 40 optimised
+  cleanly — the tools are trusted there and the gate agrees.
+- **s4-1 — hold-backs recovered.** Across the sampled subtrees the speculative
+  path *tried* a held-back stage (`vgm_sro` on QSound / SegaPCM) on **10** files
+  and the gate kept the original on all 10 — every trim that actually shrank a
+  file also changed its render. **0 recovered** here: on this corpus the
+  hold-backs were justified, and the speculative mode's worth is that it now
+  *decides per file* (try, verify, keep-or-reject) rather than denying blind. A
+  QSound / SegaPCM pack where the trim shrinks safely would recover there; none
+  of the sampled packs was one. The `optimize_parity ::
+  which_chips_the_sample_rom_trim_is_safe_for` table remains the place to widen
+  the allowlist from evidence.
+- **The one hard invariant** the test asserts held on every subtree: a file with
+  no held-back chip and no YM2612 — no stage the tools are known to get wrong —
+  is **never** kept back (0 across all 536 files), so the safe majority
+  optimises exactly as before.
+- **Wall-clock.** Per file the verified optimise averages ~1 s (the tool child
+  processes plus a render only when the pass shrinks); a corrupt YM2612 file is
+  cheap (early-bail), a long clean-shrinking SegaPCM track is the dear end (the
+  SegaSys 494 s / 120 is those). A representative pack of 20–40 tracks verifies
+  in tens of seconds — most tracks are already optimal and never render at all.
 
 ## Deferred
 

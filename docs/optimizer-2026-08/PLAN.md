@@ -64,6 +64,13 @@ harness.
   limitation.** Disabling the built-in's buggy rule *removes* the built-in's
   contribution to it; `vgm_cmp`'s own first-pass YM2612 bug remains until part 3a
   gives the built-in correct OPN handling and moves YM2612 off the tool.
+  - **Closed for the interactive path (2026-08, optimizer-rework stage 4).** The
+    per-track optimise and Edit > Optimize now render the original and the
+    optimised file and keep the smaller one only if the samples match
+    (`vgms_synth::verify`), so `vgm_cmp`'s YM2612 corruption is *caught per file*
+    there — the file is kept, with "render differed" — rather than shipped. The
+    unverified bulk export still carries the limitation until part 3a retires the
+    tool. See `docs/optimizer-rework-2026-08/PLAN.md` (s4-2).
 
 ## Stages
 
