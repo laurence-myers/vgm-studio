@@ -158,29 +158,36 @@ pub fn render_vgm_waveform_progressive(
     let stride = (num_buckets / PROGRESSIVE_UPDATES).max(1);
     let mut next_update = stride;
 
-    let mut engine = VgmEngine::new(file, sample_rate);
-    // The waveform shows what playback would sound like, so it follows the
-    // same resampling choice; the difference is invisible at bucket scale, but
-    // drawing from a different render than the one being heard is the kind of
-    // quiet inconsistency that eventually confuses a bug report.
-    engine.set_resample_mode(resampling);
-    let mut buffer = vec![0i16; 4096 * 2];
-    loop {
-        if !keep_going() {
-            return false;
+    // The waveform is drawn with the *fastest* core the build has for each chip,
+    // not the user's playback pick: a below-realtime LLE core would make this
+    // offline render crawl, while the coarse min/max buckets hide any accuracy
+    // difference. The resampling choice still follows playback, since the picture
+    // shows what playback would sound like -- drawing from a wholly different
+    // render than the one being heard is the kind of quiet inconsistency that
+    // eventually confuses a bug report.
+    let choices =
+        crate::registry::fastest_choices(file.header.chips().iter().map(|chip| chip.kind));
+    crate::registry::with_render_choices(Some(choices), move || {
+        let mut engine = VgmEngine::new(file, sample_rate);
+        engine.set_resample_mode(resampling);
+        let mut buffer = vec![0i16; 4096 * 2];
+        loop {
+            if !keep_going() {
+                return false;
+            }
+            let frames = engine.render(&mut buffer);
+            bucketer.push(&buffer[..frames * 2]);
+            if bucketer.completed() >= next_update {
+                on_update(bucketer.snapshot());
+                next_update = bucketer.completed() + stride;
+            }
+            if frames < buffer.len() / 2 {
+                break;
+            }
         }
-        let frames = engine.render(&mut buffer);
-        bucketer.push(&buffer[..frames * 2]);
-        if bucketer.completed() >= next_update {
-            on_update(bucketer.snapshot());
-            next_update = bucketer.completed() + stride;
-        }
-        if frames < buffer.len() / 2 {
-            break;
-        }
-    }
-    on_update(bucketer.finish());
-    true
+        on_update(bucketer.finish());
+        true
+    })
 }
 
 /// [`render_vgm_waveform_progressive`] keeping only the finished buckets.

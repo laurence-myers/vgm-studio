@@ -945,6 +945,40 @@ pub fn core_choice(chip: ChipKind) -> Option<String> {
     named_choice(&CHOICES.read().expect("not poisoned"), chip).cloned()
 }
 
+/// Core choices that render a *preview* -- the waveform -- as fast as this build
+/// allows, ignoring the user's playback pick. Each named chip takes the accurate
+/// realtime core that leads its list (skipping hardware-routed rows, which render
+/// no samples), never a below-realtime LLE alternative: the waveform is a coarse
+/// min/max picture where a core's micro-accuracy is invisible, but a
+/// 0.2x-realtime LLE core makes the offline render crawl.
+///
+/// Keyed `slot slug -> short name` -- the same space [`with_render_choices`]
+/// reads. A chip with no buildable core (a web build missing a provider) is
+/// omitted, falling back to whatever the process-wide choice resolves.
+#[must_use]
+pub fn fastest_choices(chips: impl IntoIterator<Item = ChipKind>) -> CoreChoices {
+    let registry = registry();
+    let mut choices = CoreChoices::new();
+    for chip in chips {
+        let Some(info) = registry
+            .for_chip(chip)
+            .find(|info| !matches!(info.make, CoreMaker::Routed))
+        else {
+            continue;
+        };
+        let slug = slot_slug(chip);
+        // The map holds the short name (`opl3.libvgm` id -> `libvgm`), the form
+        // `resolve_choice` and `vgmstudio.ini` use.
+        let short = info
+            .id
+            .strip_prefix(slug)
+            .and_then(|rest| rest.strip_prefix('.'))
+            .unwrap_or(info.id);
+        choices.insert(slug.to_owned(), short.to_owned());
+    }
+    choices
+}
+
 thread_local! {
     /// A render's one-shot core override, active only for the thread the render
     /// runs on. Renders run on their own thread (native) or Web Worker (web), so
@@ -1501,6 +1535,32 @@ mod tests {
             );
         });
         assert_eq!(render_override(ChipKind::Sn76489), None);
+    }
+
+    /// The waveform's fastest-core map names, for each playable chip, a core that
+    /// actually renders samples (never a hardware-routed row), keyed by the slot
+    /// the render override reads.
+    #[cfg(feature = "nuked-opl")]
+    #[test]
+    fn fastest_choices_names_a_buildable_core_per_chip() {
+        // OPL is playable in this build; its fastest choice resolves to a real,
+        // non-routed core -- the default that leads the list, not a below-realtime
+        // LLE alternative.
+        let choices = fastest_choices([ChipKind::Ymf262]);
+        let short = choices
+            .get(slot_slug(ChipKind::Ymf262))
+            .cloned()
+            .expect("a playable chip gets a fastest choice");
+        let resolved = registry()
+            .resolve_choice(ChipKind::Ymf262, Some(&short))
+            .expect("the named short core resolves");
+        assert!(
+            !matches!(resolved.make, CoreMaker::Routed),
+            "the fastest core renders samples, not hardware routing"
+        );
+
+        // No chips, no override.
+        assert!(fastest_choices([]).is_empty());
     }
 
     // -- GatedCore (pm-3) ----------------------------------------------------
