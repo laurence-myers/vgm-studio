@@ -73,6 +73,13 @@ fn main() -> ExitCode {
 
 /// Opens the editor, optionally loading `file` at startup.
 fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
+    // The native file dialogs host the shell namespace, so a right-click loads
+    // third-party context-menu extensions in-process; some print stray lines
+    // ("dark mode 1") to stdout, seen in a console-subsystem debug build. The
+    // GUI itself never uses stdout, so send it to NUL before any dialog opens.
+    #[cfg(windows)]
+    vgms_app::cli::silence_stdout();
+
     let mut files = NativeFileService::new();
     if let Some(path) = file {
         // Queued through the file service so a failure surfaces as the app's

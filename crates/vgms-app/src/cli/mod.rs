@@ -20,7 +20,7 @@ pub mod split;
 #[cfg(windows)]
 mod console;
 #[cfg(windows)]
-pub use console::attach_parent_console;
+pub use console::{attach_parent_console, silence_stdout};
 
 /// Edit, play, render, split and optimise DRO and VGM songs.
 #[derive(Debug, Parser)]

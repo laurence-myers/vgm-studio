@@ -67,6 +67,40 @@ fn is_usable(handle: HANDLE) -> bool {
     !handle.is_null() && handle != INVALID_HANDLE_VALUE
 }
 
+/// Points this process's standard output at the null device, best-effort.
+///
+/// The native file dialog (rfd's Windows Common Item Dialog) hosts the real
+/// Explorer shell namespace, so right-clicking a file loads whatever third-party
+/// context-menu shell extensions the machine has installed *in-process*. Some of
+/// those write stray lines -- "dark mode 1" is the reported one -- to the
+/// process's stdout, which is visible in a console-subsystem debug build.
+///
+/// The GUI never writes to stdout itself (its own logging goes to stderr via
+/// `env_logger`), so redirecting `STD_OUTPUT_HANDLE` to `NUL` before any dialog
+/// can load silences that third-party noise without losing anything of ours.
+/// Windows stdio -- the standard library's included -- re-queries `GetStdHandle`
+/// on every write, so pointing the slot at `NUL` covers any writer that resolves
+/// stdout the same way, not just our own. The null handle is deliberately leaked:
+/// it must outlive every write for the rest of the process.
+///
+/// A no-op if `NUL` cannot be opened; there is nothing to fall back to and the
+/// stray line is cosmetic, so a failure is simply left alone.
+pub fn silence_stdout() {
+    use std::os::windows::io::AsRawHandle;
+
+    let Ok(nul) = std::fs::OpenOptions::new().write(true).open("NUL") else {
+        return;
+    };
+    let handle = nul.as_raw_handle() as HANDLE;
+    // SAFETY: `handle` is a live write handle to the null device from the open
+    // above; `SetStdHandle` with the documented `STD_OUTPUT_HANDLE` identifier
+    // installs it into this process's handle table.
+    unsafe { SetStdHandle(STD_OUTPUT_HANDLE, handle) };
+    // Keep the handle alive for the process: dropping the `File` would close it
+    // and leave the stdout slot dangling.
+    std::mem::forget(nul);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
