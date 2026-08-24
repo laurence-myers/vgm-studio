@@ -150,10 +150,6 @@ fn the_builtin_optimizer_never_changes_audio() {
     let mut per_chip: BTreeMap<String, (usize, usize)> = BTreeMap::new();
     let mut failures: Vec<String> = Vec::new();
     let mut checked = 0usize;
-    // Files the built-in changed, but whose chip core renders non-deterministically
-    // (some libvgm cores power on to unreset state), so a render diff cannot be
-    // blamed on the optimiser -- reported, not failed.
-    let mut nondeterministic = 0usize;
 
     for path in candidates {
         if checked >= limit {
@@ -180,23 +176,17 @@ fn the_builtin_optimizer_never_changes_audio() {
         entry.0 += 1;
 
         let (optimized, _) = built_in(&plain);
-        // The built-in changed nothing: the bytes are the plain round-trip, so no
-        // audio change is possible. (This is where a chip with no rule lands --
-        // it drops no writes -- so non-deterministic cores never reach the render
-        // comparison below.)
+        // The built-in changed nothing: the bytes are the plain round-trip, so
+        // no audio change is possible. (A chip with no redundancy rule lands
+        // here -- the built-in only re-encodes its delays, dropping no writes.)
         if optimized == plain {
             continue;
         }
-        // The built-in changed the file. Establish the determinism baseline first:
-        // render the original twice. A core that renders differently each time
-        // cannot be judged by a render diff, so skip it rather than blame the
-        // optimiser for the core's own noise.
+        // The built-in changed the file, so any render difference is its doing.
+        // Every core renders deterministically (see `vgms_cores_libvgm`'s
+        // `rng`), so a diff is a dropped write that mattered, never the core's
+        // own reset noise.
         let original = render_file(&file);
-        if difference(&original, &render_file(&file)).is_some() {
-            nondeterministic += 1;
-            continue;
-        }
-        // Deterministic: any difference now is the built-in's doing.
         if let Some(rendered) = render_bytes(&name, &optimized)
             && let Some((first, peak)) = difference(&original, &rendered)
         {
@@ -220,10 +210,6 @@ fn the_builtin_optimizer_never_changes_audio() {
         }
         println!("  {chip}: {n} checked, {changed} changed{mark}");
     }
-    println!(
-        "skipped {nondeterministic} file(s) the built-in changed but whose chip core \
-         renders non-deterministically (cannot be judged by a render diff)"
-    );
     if !failures.is_empty() {
         println!("\nexamples:");
         for line in &failures {
@@ -397,10 +383,10 @@ fn vgm_cmp_vs_builtin_over_the_corpus() {
     println!("\n(investigation complete)\n");
 }
 
-/// Is a render deterministic, and does the built-in change it? Distinguishes a
-/// real optimise corruption from render non-determinism (a chip core with
-/// unreset/rng state would make the gate flag a file the optimiser never
-/// touched). Set VGMSTUDIO_INSPECT_FILE.
+/// Single-file inspector: confirms the render is deterministic (every core is,
+/// since `vgms_cores_libvgm`'s `rng` fix -- the "render twice" line should
+/// always report no difference) and reports whether the built-in optimiser
+/// changes what the file plays. Set VGMSTUDIO_INSPECT_FILE.
 #[test]
 #[ignore = "diagnostic; needs VGMSTUDIO_INSPECT_FILE"]
 fn render_determinism() {
