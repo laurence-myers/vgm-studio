@@ -48,6 +48,7 @@ pub use vgm::{
     VgmHeader, VgmMeta, VgmStream,
 };
 pub use volume::{
-    boost_for_peak, encode_volume_modifier, matched_volume, nearest_volume_modifier, peak_dbfs,
-    suggest_volume_modifier, volume_modifier_factor, volume_step_down, volume_step_up,
+    boost_for_peak, encode_volume_modifier, floor_volume_modifier, matched_volume,
+    nearest_volume_modifier, peak_dbfs, suggest_volume_modifier, volume_modifier_factor,
+    volume_step_down, volume_step_up,
 };

@@ -132,6 +132,23 @@ pub fn nearest_volume_modifier(factor: f32) -> u8 {
     encode_volume_modifier(steps.round() as i32)
 }
 
+/// The modifier byte whose playback factor is the nearest ladder value *at or
+/// below* `factor` -- the floor sibling of [`nearest_volume_modifier`]'s round.
+///
+/// Where `nearest` snaps to the closest ladder rung (which can round up, past the
+/// requested factor), this floors the step count so the encoded factor never
+/// exceeds the multiplier asked for. It is what the metadata dialog uses when the
+/// user types a multiplier directly -- "2.3x" floors to the `2.00x` rung (`0x20`)
+/// rather than rounding up toward clipping -- matching the clip-safe intent of
+/// [`suggest_volume_modifier`]. Clamps at the ladder's ends exactly as
+/// [`encode_volume_modifier`] does (its `0xC1` reads back as the clean `0.25x`
+/// floor); `max(MIN_POSITIVE)` keeps a zero or negative input finite.
+#[must_use]
+pub fn floor_volume_modifier(factor: f32) -> u8 {
+    let steps = factor.max(f32::MIN_POSITIVE).log2() * 32.0;
+    encode_volume_modifier(steps.floor() as i32)
+}
+
 /// The next ladder volume *above* `factor`, for the volume stepper's up arrow.
 ///
 /// Steps by about `1.0` at unity and above (so the lever climbs `1x -> 2x -> 3x`)
@@ -279,6 +296,29 @@ mod tests {
             !approx(volume_modifier_factor(0xC1), 2.0f32.powf(-63.0 / 32.0)),
             "0xC1 must not decode as the nominal -63 steps"
         );
+    }
+
+    #[test]
+    fn flooring_a_multiplier_never_rounds_up_past_it() {
+        // Exact ladder rungs land on themselves.
+        assert_eq!(floor_volume_modifier(1.0), 0x00);
+        assert_eq!(floor_volume_modifier(2.0), 0x20);
+        assert_eq!(floor_volume_modifier(4.0), 0x40);
+        // Within the reachable range the floored factor never exceeds the
+        // request -- the clip-safe property round/nearest does not guarantee.
+        for &factor in &[0.25f32, 0.5, 0.99, 1.5, 2.3, 5.7, 33.0, 64.0] {
+            let floored = volume_modifier_factor(floor_volume_modifier(factor));
+            assert!(
+                floored <= factor + 1e-4,
+                "floor({factor}) decoded to {floored}, above the request"
+            );
+        }
+        // The ladder is fine-grained, so 2.3x floors to the rung just under it,
+        // not all the way back to 2.0x.
+        assert!(volume_modifier_factor(floor_volume_modifier(2.3)) > 2.0);
+        // Ends clamp: past 64x to max gain, below 0.25x to the clean 0.25x floor.
+        assert_eq!(floor_volume_modifier(100.0), 0xC0);
+        assert_eq!(floor_volume_modifier(0.1), 0xC1);
     }
 
     #[test]
