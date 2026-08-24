@@ -52,12 +52,12 @@
 //! bit), writes the panpots (`0x0D0`-`0x0D8` low bank, `0x1D0`-`0x1D8` high), and
 //! thereafter suppresses the song's own `0xD0`-`0xD8` writes so they cannot
 //! clobber the applied pan. Un-panned, the song's own `0xC0`-`0xC8` stereo bits
-//! pass straight through. **One limitation:** the `ChipCore` pan API has no
-//! "return to the song's own stereo" call (a channel is a position, not a mode),
-//! so once engaged the adapter stays engaged until [`reset`](ChipCore::reset).
-//! Disengaging mid-playback (the OPL panel's Original-vs-Custom, which the
-//! retired OPL engine resynced through a `0xC0` shadow) still costs a reset: a
-//! channel returned to the song's own stereo keeps its applied pan until then.
+//! pass straight through. Disengaging mid-playback (the OPL panel's
+//! Original-vs-Custom, or Reset) is [`clear_channel_pans`](ChipCore::clear_channel_pans):
+//! it drops the `0x105` enable bit, which makes the stereo-ext panpots inert at
+//! once and reverts the chip to the song's own `0xC0` stereo image with no
+//! reset. The engine restates panning every mix pass, so an un-panned chip is
+//! actively disengaged rather than left latched at its last custom image.
 
 use vgms_core::vgm::ChipKind;
 
@@ -248,6 +248,21 @@ impl ChipCore for OplCoreAdapter {
             };
             self.opl.write_reg(reg, to_panpot(pan));
         }
+    }
+
+    fn clear_channel_pans(&mut self) {
+        // Idempotent: a chip that never engaged custom panning has nothing to
+        // undo, and the engine calls this every mix pass for an un-panned chip.
+        if !self.panned {
+            return;
+        }
+        // Drop the enable bit (keeping the song's `newm`): the stereo-ext panpots
+        // go inert the instant `0x105` bit 1 clears, so the stale `0xD0`-`0xD8`
+        // values need no rewrite and the chip reverts to the song's own `0xC0`
+        // stereo image. Clearing `panned` also lets `routed_write` stop forcing
+        // the enable bit and stop dropping the song's own `0xD0` writes.
+        self.panned = false;
+        self.opl.write_reg(STEREO_EXT_REG, self.newm);
     }
 
     fn supports_pan(&self) -> bool {
@@ -452,6 +467,49 @@ mod tests {
         assert!(
             log.lock().unwrap().is_empty(),
             "a song panpot write is suppressed while panned"
+        );
+    }
+
+    /// The disengage counterpart: `clear_channel_pans` drops the enable bit and
+    /// unlatches, so the song's own stereo (and its `0xD0` writes) come back
+    /// without a reset. This is the fix for the "Reset panning / Custom off does
+    /// nothing on Nuked-OPL3" bug.
+    #[test]
+    fn clearing_pans_disengages_stereo_ext_and_restores_song_panpots() {
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut core = OplCoreAdapter::new(Box::new(SpyOpl {
+            log: std::sync::Arc::clone(&log),
+        }));
+        core.write(1, 0x05, 0x01); // OPL3 mode: newm set
+        let mut pans = vec![0i16; 14];
+        pans[0] = -0x100;
+        core.set_channel_pans(&pans);
+        assert!(core.panned, "custom panning is engaged");
+
+        // Disengage.
+        log.lock().unwrap().clear();
+        core.clear_channel_pans();
+        assert!(!core.panned, "the latch is cleared");
+        assert!(
+            log.lock().unwrap().contains(&(0x105, 0x01)),
+            "stereo-ext disabled, newm kept: {:02X?}",
+            log.lock().unwrap()
+        );
+
+        // The song's own 0xD0 write now passes straight through again.
+        log.lock().unwrap().clear();
+        core.write(0, 0xD0, 0x42);
+        assert!(
+            log.lock().unwrap().contains(&(0x0D0, 0x42)),
+            "a song panpot passes through once disengaged"
+        );
+
+        // Idempotent: clearing an already-un-panned chip writes nothing.
+        log.lock().unwrap().clear();
+        core.clear_channel_pans();
+        assert!(
+            log.lock().unwrap().is_empty(),
+            "clearing an un-panned chip is a no-op"
         );
     }
 

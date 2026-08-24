@@ -113,6 +113,15 @@ pub trait ChipCore: Send {
     /// [`reset`](Self::reset).
     fn set_channel_pans(&mut self, _pans: &[i16]) {}
 
+    /// Returns this chip to the song's own stereo image, undoing an earlier
+    /// [`set_channel_pans`](Self::set_channel_pans) without a full reset -- the
+    /// counterpart of `set_channel_mutes(0)` unmuting. The engine calls it every
+    /// mix pass for a chip that has *no* custom pans, so turning "Custom" off (or
+    /// clicking Reset) actually disengages rather than leaving the last custom
+    /// image latched. The default ignores it (a core that never latched has
+    /// nothing to undo).
+    fn clear_channel_pans(&mut self) {}
+
     /// Whether [`set_channel_pans`](Self::set_channel_pans) reaches this
     /// core's mix. The UI hides pan controls when it does not, rather than
     /// drawing knobs that turn and do nothing.

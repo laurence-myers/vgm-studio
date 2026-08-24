@@ -313,6 +313,10 @@ impl ChipCore for Leveled {
         self.inner.set_channel_pans(pans);
     }
 
+    fn clear_channel_pans(&mut self) {
+        self.inner.clear_channel_pans();
+    }
+
     fn supports_pan(&self) -> bool {
         self.inner.supports_pan()
     }
@@ -528,6 +532,10 @@ impl ChipCore for GatedCore {
 
     fn set_channel_pans(&mut self, pans: &[i16]) {
         self.inner.set_channel_pans(pans);
+    }
+
+    fn clear_channel_pans(&mut self) {
+        self.inner.clear_channel_pans();
     }
 
     fn supports_pan(&self) -> bool {

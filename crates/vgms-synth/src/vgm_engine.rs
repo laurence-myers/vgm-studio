@@ -408,11 +408,19 @@ impl VgmEngine {
                 .trims
                 .percent_for(voice.target.kind, voice.target.instance);
             voice.trim = u32::from(percent) * crate::balance::GAIN_UNITY / 100;
+            // Panning is restated every mix pass exactly like the mute mask
+            // above: a chip with custom pans gets them, and a chip with none
+            // gets an explicit disengage. Without the `else`, turning "Custom"
+            // off leaves an OPL core latched at its last custom image, because
+            // "Original" panning carries no entry to push (see the panning bug
+            // in `clear_channel_pans`).
             if let Some(pans) = self
                 .panning
                 .pans_for(voice.target.kind, voice.target.instance)
             {
                 voice.core.set_channel_pans(pans);
+            } else {
+                voice.core.clear_channel_pans();
             }
         }
     }
@@ -1462,6 +1470,12 @@ mod tests {
                     .expect("not poisoned")
                     .push((self.voice, "pan", pans.len() as u32));
             }
+            fn clear_channel_pans(&mut self) {
+                self.log
+                    .lock()
+                    .expect("not poisoned")
+                    .push((self.voice, "clearpan", 0));
+            }
         }
 
         let counter = Arc::new(Mutex::new(0u8));
@@ -1509,6 +1523,17 @@ mod tests {
         assert!(
             !after_resets.contains(&(1, "pan", 4)),
             "instance 2 has no pan image set: {events:?}"
+        );
+        // The counterpart of the disengage bug: the un-panned instance is
+        // actively told to drop back to the song's own stereo every mix pass,
+        // while the panned one is not (it keeps its custom image).
+        assert!(
+            after_resets.contains(&(1, "clearpan", 0)),
+            "instance 2, with no pan entry, is disengaged: {events:?}"
+        );
+        assert!(
+            !after_resets.contains(&(0, "clearpan", 0)),
+            "instance 1 keeps its custom pans, not cleared: {events:?}"
         );
     }
 
