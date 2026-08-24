@@ -29,6 +29,10 @@ pub mod speed;
 pub mod split;
 #[cfg(test)]
 pub(crate) mod testing;
+// The render-verify gate is native-only: it spawns a thread per side, and the
+// web pack path has no per-track action to gate yet (D-orw-7).
+#[cfg(not(target_arch = "wasm32"))]
+pub mod verify;
 pub mod vgm_engine;
 pub mod wav;
 pub mod waveform;
@@ -58,6 +62,8 @@ pub use registry::{
     install, opl_hardware_core, registry, with_render_choices,
 };
 pub use split::{SplitData, SplitFormat, SplitOutput, VgmSplitOptions, split_vgm_cancellable};
+#[cfg(not(target_arch = "wasm32"))]
+pub use verify::{Verdict, VerifyOptions, renders_identically};
 pub use vgm_engine::VgmEngine;
 pub use wav::{
     VgmRenderMix, render_vgm_wav, render_vgm_wav_cancellable, render_vgm_wav_mixed_cancellable,
