@@ -197,6 +197,14 @@ const SECTIONS: &[Section] = &[
             ),
             (Keys::Text("Drag the grip"), "Reorder a track by hand"),
             (Keys::Text("Double-click a track"), "Open it in the editor"),
+            (
+                Keys::Text("Track menu \u{22EF} > Optimize"),
+                "Optimize one track and write it back only if it renders the same",
+            ),
+            (
+                Keys::Text("Optimize All"),
+                "Optimize every track that way, one after another",
+            ),
         ],
     },
 ];

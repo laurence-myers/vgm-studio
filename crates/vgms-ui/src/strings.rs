@@ -268,6 +268,12 @@ pub(crate) fn app_status_optimized(
     format!("Optimized: removed {commands} command(s), saved {bytes} byte(s)")
 }
 
+/// Edit > Optimize kept the original because the render gate rejected the
+/// smaller file (D-orw-4).
+pub(crate) fn app_status_optimize_reverted(reason: &str) -> String {
+    format!("Kept the original: {reason}.")
+}
+
 pub(crate) fn app_status_cropped(kept: impl std::fmt::Display) -> String {
     format!("Cropped to {kept} instruction(s).")
 }

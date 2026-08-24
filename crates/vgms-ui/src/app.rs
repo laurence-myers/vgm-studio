@@ -25,7 +25,7 @@ use crate::dialogs::{
     HelpDialog, RenderWavDialog, ScreenshotRenameDialog, SettingsDialog, SplitDialog,
     SplitSongsDialog, TrackEditDialog, UnwalkableVgmDialog, VgmMetadataDialog,
 };
-use crate::editor::{Editor, LoadFailure, LoadReport};
+use crate::editor::{Editor, LoadFailure, LoadReport, OptimizeVgmOutcome};
 use crate::markers::RangeMarkers;
 use crate::menus::{self, MenuState};
 use crate::pack::{BulkTagOverlay, PackMutation, PackState, PackTransaction, TrackOptimizeStatus};

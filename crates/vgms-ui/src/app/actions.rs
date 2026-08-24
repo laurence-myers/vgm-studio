@@ -181,12 +181,19 @@ impl VgmStudioApp {
             return;
         }
         match self.editor.optimize_vgm(self.config.optimizer) {
-            Some((commands, bytes)) => {
-                self.status = crate::strings::app_status_optimized(commands, bytes);
+            OptimizeVgmOutcome::Optimized { removed, saved } => {
+                self.status = crate::strings::app_status_optimized(removed, saved);
                 self.scroll_to = Some(table::ScrollTo::centered(0));
                 self.after_edit();
             }
-            None => self.status = crate::strings::APP_STATUS_NOTHING_TO_OPTIMIZE.to_owned(),
+            OptimizeVgmOutcome::NothingToDo => {
+                self.status = crate::strings::APP_STATUS_NOTHING_TO_OPTIMIZE.to_owned();
+            }
+            OptimizeVgmOutcome::KeptOriginal(reason) => {
+                // Verified: the smaller file played differently, so the original
+                // stands and the user is told why (D-orw-4).
+                self.status = crate::strings::app_status_optimize_reverted(&reason);
+            }
         }
     }
 

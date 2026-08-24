@@ -33,45 +33,68 @@ pub(crate) const fn credit() -> &'static str {
     ""
 }
 
-/// The optimised file, or `None` when there was nothing to gain. `optimizer` is
-/// the Settings choice -- built-in, the external tools, or the routing between.
+/// What the editor's Edit > Optimize concluded.
+///
+/// The web arm only ever produces [`Self::Accepted`]/[`Self::Nothing`] -- its
+/// built-in pass is ungated (D-orw-7) -- while the native arm can also keep the
+/// original when the render gate rejects a shrink.
+#[derive(Debug, Clone)]
+pub enum EditorOptimize {
+    /// The (verified) optimised bytes, ready to install.
+    Accepted(Vec<u8>),
+    /// Nothing to gain -- the file is already optimal.
+    Nothing,
+    /// The pass shrank the file but it was kept because the render differed or
+    /// could not be verified; carries a one-line reason.
+    Kept(String),
+}
+
+/// The editor's Edit > Optimize, render-gated on native.
+///
+/// Native runs the full pipeline and verifies the result by rendering, keeping
+/// the original if the samples differ (`optimize_verified`). `optimizer` is the
+/// Settings choice -- built-in, the external tools, or the routing between.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn optimized(
+pub(crate) fn optimized_editor(
     bytes: &[u8],
     optimizer: vgms_core::config::OptimizerChoice,
-) -> Option<Vec<u8>> {
+) -> EditorOptimize {
     let options = vgms_vgmtools::Options {
         optimizer,
         ..Default::default()
     };
-    let result = vgms_vgmtools::optimize_vgm(bytes, options);
-    for stage in &result.stages {
-        match &stage.outcome {
-            // Never fatal: the pass carried on from the bytes this stage was
-            // handed, so the document is sound and the log is where this goes.
-            vgms_vgmtools::StageOutcome::Failed(reason) => {
-                log::warn!("optimizing: {} failed: {reason}", stage.name);
-            }
-            vgms_vgmtools::StageOutcome::Skipped(reason) => {
-                log::debug!("optimizing: {} skipped: {reason}", stage.name);
-            }
-            _ => {}
-        }
+    let verified = optimize_verified(
+        bytes,
+        options,
+        &vgms_vgmtools::NativeTools,
+        vgms_synth::VerifyOptions::default(),
+    );
+    match verified.outcome {
+        VerifiedOutcome::Optimized(bytes) => EditorOptimize::Accepted(bytes),
+        VerifiedOutcome::Unchanged => EditorOptimize::Nothing,
+        VerifiedOutcome::KeptOriginal(verdict) => EditorOptimize::Kept(describe_verdict(verdict)),
+        VerifiedOutcome::Unverifiable(reason) => EditorOptimize::Kept(reason),
     }
-    result.changed().then_some(result.bytes)
 }
 
-/// The optimised file, or `None` when there was nothing to gain. The web editor
-/// optimise is always the built-in (the wasm tool modules are the pack worker's,
-/// not the editor's), so the Settings choice does not bite here.
+/// The editor's Edit > Optimize on the web: the built-in pass, ungated (the wasm
+/// tool modules are the pack worker's, not the editor's, so the Settings choice
+/// does not bite here, and there is no render gate yet -- D-orw-7).
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn optimized(
+pub(crate) fn optimized_editor(
     bytes: &[u8],
     _optimizer: vgms_core::config::OptimizerChoice,
-) -> Option<Vec<u8>> {
-    let mut file = vgms_core::vgm::file::read("optimizing.vgm", bytes).ok()?;
-    file.optimize()?;
-    vgms_core::vgm::file::write(&file).ok()
+) -> EditorOptimize {
+    let optimized = vgms_core::vgm::file::read("optimizing.vgm", bytes)
+        .ok()
+        .and_then(|mut file| {
+            file.optimize()?;
+            vgms_core::vgm::file::write(&file).ok()
+        });
+    match optimized {
+        Some(bytes) => EditorOptimize::Accepted(bytes),
+        None => EditorOptimize::Nothing,
+    }
 }
 
 /// What a verified optimise did, once the render gate has had its say.

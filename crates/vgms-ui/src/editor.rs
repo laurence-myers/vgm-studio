@@ -140,6 +140,19 @@ pub enum LoadFailure {
     },
 }
 
+/// What Edit > Optimize did to the loaded VGM.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OptimizeVgmOutcome {
+    /// The file shrank (and, on native, verified identical): commands removed
+    /// and bytes saved.
+    Optimized { removed: usize, saved: usize },
+    /// Nothing to gain, or no VGM is loaded.
+    NothingToDo,
+    /// The pass shrank the file but it was kept because the render differed or
+    /// could not be verified; carries a one-line reason.
+    KeptOriginal(String),
+}
+
 /// What loading a DRO found, for the two load-time warning dialogs.
 /// Always all-clear for a VGM.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -627,22 +640,35 @@ impl Editor {
     ///
     /// Goes out through whole-file bytes rather than editing in place, because
     /// the desktop route hands them to the vgmtools optimisers as a file (see
-    /// `crate::optimize`). Reading the result back is cheap next to what the
-    /// tools just did, and it keeps both arms to one shape.
+    /// `crate::optimize`). On native the result is verified by rendering before
+    /// it is installed -- a shrink that changes what the file plays is kept back
+    /// with its reason rather than applied (D-orw-4).
     ///
     /// Whatever route ran, it drops only what its per-chip rules call safe and
     /// drops nothing at all from a chip it has no rules for.
     fn optimize_vgm_document(
         &mut self,
         optimizer: vgms_core::config::OptimizerChoice,
-    ) -> Option<(usize, usize)> {
-        let file = self.vgm.as_mut()?;
+    ) -> OptimizeVgmOutcome {
+        let Some(file) = self.vgm.as_mut() else {
+            return OptimizeVgmOutcome::NothingToDo;
+        };
         let before_bytes = file.body.raw().len();
         let before_commands = file.len();
 
-        let plain = vgms_core::vgm::file::write(file).ok()?;
-        let optimized = crate::optimize::optimized(&plain, optimizer)?;
-        let mut edited = vgms_core::vgm::file::read(&file.name, &optimized).ok()?;
+        let Ok(plain) = vgms_core::vgm::file::write(file) else {
+            return OptimizeVgmOutcome::NothingToDo;
+        };
+        let accepted = match crate::optimize::optimized_editor(&plain, optimizer) {
+            crate::optimize::EditorOptimize::Accepted(bytes) => bytes,
+            crate::optimize::EditorOptimize::Nothing => return OptimizeVgmOutcome::NothingToDo,
+            crate::optimize::EditorOptimize::Kept(reason) => {
+                return OptimizeVgmOutcome::KeptOriginal(reason);
+            }
+        };
+        let Ok(mut edited) = vgms_core::vgm::file::read(&file.name, &accepted) else {
+            return OptimizeVgmOutcome::NothingToDo;
+        };
         edited.name = file.name.clone();
 
         let saved = before_bytes.saturating_sub(edited.body.raw().len());
@@ -653,7 +679,7 @@ impl Editor {
         self.selection.clear();
         self.reset_markers();
         self.bump_revision();
-        Some((removed, saved))
+        OptimizeVgmOutcome::Optimized { removed, saved }
     }
 
     /// The VGM-held document's half of [`Self::delete_selection`].
@@ -685,8 +711,8 @@ impl Editor {
     }
 
     /// Optimises the loaded VGM: strips redundant register writes and merges the
-    /// delays left behind, undoably. Returns `(commands_removed, bytes_saved)`,
-    /// or `None` when no VGM is loaded or there is nothing to optimise.
+    /// delays left behind, undoably, and (on native) verifies the result renders
+    /// identically before installing it.
     ///
     /// The stream is rebuilt wholesale (delay runs re-encode), so the selection
     /// is cleared and the loop markers are re-derived from the song's remapped
@@ -694,7 +720,7 @@ impl Editor {
     pub fn optimize_vgm(
         &mut self,
         optimizer: vgms_core::config::OptimizerChoice,
-    ) -> Option<(usize, usize)> {
+    ) -> OptimizeVgmOutcome {
         self.optimize_vgm_document(optimizer)
     }
 
