@@ -576,6 +576,62 @@ pub struct OptimizedImage {
     pub bytes: Vec<u8>,
 }
 
+/// A request to optimise one pack song off the UI thread
+/// ([`PackService::optimize_song`]).
+///
+/// Plain data, wasm-clean: the switches are the config values the native pack
+/// service reconstructs a `vgms_vgmtools::Options` from, kept off this trait so
+/// the surface stays free of the GPL, native-only optimiser crate.
+#[derive(Debug, Clone)]
+pub struct SongOptimizeRequest {
+    /// The song's file name, the stable identity the result is matched back on.
+    pub name: String,
+    /// The song's bytes as they sit on disk -- possibly a gzipped `.vgz`, which
+    /// the service unpacks, optimises and re-packs so the format is preserved.
+    pub bytes: Vec<u8>,
+    /// Run `vgm_sro`, trimming unused sample-ROM regions (the Settings switch).
+    pub sample_roms: bool,
+    /// Run `optdac`, collapsing long runs of identical DAC writes.
+    pub dac_runs: bool,
+    /// Which optimiser to use: built-in, external tools, or the routing between.
+    pub optimizer: vgms_core::config::OptimizerChoice,
+    /// The rate the render gate compares at (the audio output rate).
+    pub output_rate: u32,
+}
+
+/// What a per-track optimise concluded, once the render gate has verified it.
+///
+/// Plain data so the wasm-clean UI can carry it; the native pack service maps
+/// the render gate's verdict onto these.
+#[derive(Debug, Clone)]
+pub enum SongOptimizeOutcome {
+    /// Shrank on disk and verified identical: the bytes are safe to write in
+    /// place (in the song's own on-disk format).
+    Optimized(Vec<u8>),
+    /// Nothing to gain on disk -- already optimal. The original is kept.
+    Unchanged,
+    /// Shrank, but the render differed: the original is kept, with a reason.
+    KeptDiffered(String),
+    /// Shrank, but the result could not be read back to verify: original kept.
+    Unverifiable(String),
+    /// The pass could not run (an unreadable file, say): original kept.
+    Failed(String),
+}
+
+/// The result of a [`PackService::optimize_song`], delivered via
+/// [`PackService::poll_optimized_song`].
+#[derive(Debug, Clone)]
+pub struct SongOptimizeResult {
+    /// The file name the request carried, for matching back to a track.
+    pub name: String,
+    /// The size before the pass (the on-disk file), for the savings figure.
+    pub original_len: usize,
+    /// What became of the file.
+    pub outcome: SongOptimizeOutcome,
+    /// The pass's per-stage narration, for the pack log / status line.
+    pub log: Vec<String>,
+}
+
 /// Runs the pack export off the UI thread: optimise PNGs, optionally gzip songs,
 /// and build the zip. Kept separate from [`crate::tasks::TaskService`] because
 /// its job body needs native-only crates (zip, oxipng) that must not reach the
@@ -599,6 +655,22 @@ pub trait PackService {
 
     /// The next optimisation result. `None` until one arrives.
     fn poll_optimized(&mut self) -> Option<Result<OptimizedImage, String>>;
+
+    /// Optimises one pack song off the UI thread: the vgmtools pipeline, then
+    /// the render gate that keeps the smaller file only when it plays the same
+    /// samples. The result arrives via [`Self::poll_optimized_song`].
+    ///
+    /// The default does nothing: the render gate is native-only (D-orw-7), so a
+    /// shell without it -- the web -- simply does not offer the action.
+    fn optimize_song(&mut self, request: SongOptimizeRequest) {
+        let _ = request;
+    }
+
+    /// The next per-track optimise result. `None` until one arrives, and always
+    /// on a shell that does not implement [`Self::optimize_song`].
+    fn poll_optimized_song(&mut self) -> Option<SongOptimizeResult> {
+        None
+    }
 
     /// Today's local date as `(year, month, day)`, for the prefilled history
     /// line. The default returns `None`, keeping the wasm-clean UI free of a

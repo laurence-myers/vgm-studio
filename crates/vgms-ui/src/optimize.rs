@@ -192,3 +192,129 @@ pub fn optimize_verified(
         outcome,
     }
 }
+
+/// Optimises one pack song and verifies it, preserving its on-disk format and
+/// narrating the pass for the pack log -- the whole per-track job the native
+/// pack service runs off the UI thread.
+///
+/// `request.bytes` are the file as it sits on disk (a `.vgz` is unpacked,
+/// optimised, and re-packed so the format is kept). A result is accepted only
+/// when it both verifies identical *and* is smaller on disk, so a `.vgz` whose
+/// gzip already subsumed the redundancy is reported as already optimal rather
+/// than rewritten larger. Never fatal: any failure keeps the original bytes.
+#[cfg(not(target_arch = "wasm32"))]
+#[must_use]
+pub fn optimize_song_verified(
+    request: &crate::platform::SongOptimizeRequest,
+) -> crate::platform::SongOptimizeResult {
+    use crate::platform::{SongOptimizeOutcome, SongOptimizeResult};
+
+    let name = request.name.clone();
+    let original_len = request.bytes.len();
+    let gzipped = vgms_core::vgm::io::is_gzipped(&request.bytes);
+    let kept = |outcome, log| SongOptimizeResult {
+        name: name.clone(),
+        original_len,
+        outcome,
+        log,
+    };
+
+    // Plain bytes for the tools -- a `.vgz` is unpacked here.
+    let plain = match vgms_core::vgm::file::read(&name, &request.bytes)
+        .and_then(|file| vgms_core::vgm::file::write(&file))
+    {
+        Ok(plain) => plain,
+        Err(error) => {
+            let reason = format!("could not read {name}: {error}");
+            return kept(SongOptimizeOutcome::Failed(reason.clone()), vec![reason]);
+        }
+    };
+
+    let options = vgms_vgmtools::Options {
+        sample_roms: request.sample_roms,
+        dac_runs: request.dac_runs,
+        optimizer: request.optimizer,
+    };
+    let verify = vgms_synth::VerifyOptions::new(request.output_rate);
+    let verified = optimize_verified(&plain, options, &vgms_vgmtools::NativeTools, verify);
+
+    let mut log = narrate_stages(&name, &verified);
+    let outcome = match &verified.outcome {
+        VerifiedOutcome::Unchanged => SongOptimizeOutcome::Unchanged,
+        VerifiedOutcome::KeptOriginal(verdict) => {
+            let reason = describe_verdict(*verdict);
+            log.push(format!("{name}: kept original -- {reason}"));
+            SongOptimizeOutcome::KeptDiffered(reason)
+        }
+        VerifiedOutcome::Unverifiable(reason) => {
+            log.push(format!("{name}: kept original -- {reason}"));
+            SongOptimizeOutcome::Unverifiable(reason.clone())
+        }
+        VerifiedOutcome::Optimized(optimized_plain) => {
+            // Re-encode to the on-disk format so a .vgz stays a .vgz.
+            let reencoded = if gzipped {
+                vgms_core::vgm::file::read(&name, optimized_plain)
+                    .and_then(|file| vgms_core::vgm::file::write_gzipped(&file))
+            } else {
+                Ok(optimized_plain.clone())
+            };
+            match reencoded {
+                Ok(final_bytes) if final_bytes.len() < original_len => {
+                    log.push(format!(
+                        "{name}: {original_len} -> {} bytes (verified, {} saved)",
+                        final_bytes.len(),
+                        original_len - final_bytes.len()
+                    ));
+                    SongOptimizeOutcome::Optimized(final_bytes)
+                }
+                // Verified, but no smaller on disk (a .vgz whose gzip already
+                // subsumed the redundancy): keep the original bytes.
+                Ok(_) => {
+                    log.push(format!("{name}: verified, but no smaller on disk"));
+                    SongOptimizeOutcome::Unchanged
+                }
+                Err(error) => {
+                    let reason = format!("could not re-encode: {error}");
+                    log.push(format!("{name}: kept original -- {reason}"));
+                    SongOptimizeOutcome::Unverifiable(reason)
+                }
+            }
+        }
+    };
+
+    kept(outcome, log)
+}
+
+/// The per-stage narration a pack log wants, in the order the stages ran --
+/// the same lines `optimize_song_logged` produces, minus the untouched-chip
+/// note (a per-track action reports on one file at a time).
+#[cfg(not(target_arch = "wasm32"))]
+fn narrate_stages(name: &str, verified: &VerifiedOptimized) -> Vec<String> {
+    let mut log = Vec::new();
+    for stage in &verified.stages {
+        match &stage.outcome {
+            vgms_vgmtools::StageOutcome::Shrank { from, to } => {
+                log.push(format!("{name}:   {} {from} -> {to} bytes", stage.name));
+            }
+            vgms_vgmtools::StageOutcome::Failed(reason) => {
+                log.push(format!("{name}:   {} failed: {reason}", stage.name));
+            }
+            vgms_vgmtools::StageOutcome::Skipped(reason) => {
+                log.push(format!("{name}:   {} skipped: {reason}", stage.name));
+            }
+            vgms_vgmtools::StageOutcome::Unchanged => {}
+        }
+    }
+    log
+}
+
+/// A one-line description of a render-gate verdict, for a log or status line.
+#[cfg(not(target_arch = "wasm32"))]
+fn describe_verdict(verdict: vgms_synth::Verdict) -> String {
+    match verdict {
+        vgms_synth::Verdict::Identical => "renders identically".to_owned(),
+        vgms_synth::Verdict::DiffersAt { sample, of } => {
+            format!("render differed at sample {sample} of {of}")
+        }
+    }
+}

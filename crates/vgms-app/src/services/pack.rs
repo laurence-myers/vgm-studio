@@ -11,7 +11,10 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 
 use chrono::{Datelike as _, Local};
-use vgms_ui::{OptimizedImage, PackJobOutcome, PackJobRequest, PackService};
+use vgms_ui::{
+    OptimizedImage, PackJobOutcome, PackJobRequest, PackService, SongOptimizeRequest,
+    SongOptimizeResult,
+};
 
 use crate::pack_zip::{build_pack_zip, png_options};
 
@@ -22,6 +25,10 @@ pub struct NativePackService {
     /// supersede one another, so no generation is needed.
     optimize_sender: Sender<Result<OptimizedImage, String>>,
     optimize_receiver: Receiver<Result<OptimizedImage, String>>,
+    /// Per-track song optimisations, on their own channel for the same reason:
+    /// each is an independent job the caller drives one at a time.
+    song_sender: Sender<SongOptimizeResult>,
+    song_receiver: Receiver<SongOptimizeResult>,
     /// The running job's cancel flag, if any.
     cancelled: Option<Arc<AtomicBool>>,
     /// Spawned-and-not-yet-exited threads, for `is_busy`.
@@ -35,11 +42,14 @@ impl Default for NativePackService {
     fn default() -> Self {
         let (sender, receiver) = channel();
         let (optimize_sender, optimize_receiver) = channel();
+        let (song_sender, song_receiver) = channel();
         Self {
             sender,
             receiver,
             optimize_sender,
             optimize_receiver,
+            song_sender,
+            song_receiver,
             cancelled: None,
             live: Arc::new(AtomicUsize::new(0)),
             generation: 0,
@@ -168,6 +178,29 @@ impl PackService for NativePackService {
         self.optimize_receiver.try_recv().ok()
     }
 
+    fn optimize_song(&mut self, request: SongOptimizeRequest) {
+        let sender = self.song_sender.clone();
+        let notify = self.notify.clone();
+        let live = Arc::clone(&self.live);
+        live.fetch_add(1, Ordering::Relaxed);
+        thread::spawn(move || {
+            // The whole per-track job -- pipeline, render gate, format-preserving
+            // re-encode, narration -- lives in `vgms_ui::optimize`, beside the
+            // wrapper it composes. This is only the thread around it.
+            let result = vgms_ui::optimize::optimize_song_verified(&request);
+            // A closed channel just means the app shut down.
+            let _ = sender.send(result);
+            if let Some(notify) = &notify {
+                notify();
+            }
+            live.fetch_sub(1, Ordering::Relaxed);
+        });
+    }
+
+    fn poll_optimized_song(&mut self) -> Option<SongOptimizeResult> {
+        self.song_receiver.try_recv().ok()
+    }
+
     fn today(&self) -> Option<(i32, u8, u8)> {
         let today = Local::now().date_naive();
         Some((
@@ -285,6 +318,75 @@ mod tests {
         assert_eq!(optimized.original_len, PNG.len());
         assert!(optimized.bytes.len() < PNG.len(), "the fixture shrinks");
         assert_eq!(&optimized.bytes[..8], b"\x89PNG\r\n\x1a\n");
+    }
+
+    /// A minimal SN76489 VGM with a redundant loud-write the tools can drop.
+    fn sn76489_song() -> Vec<u8> {
+        fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
+            bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        const DATA_START: usize = 0x100;
+        let mut bytes = vec![0u8; DATA_START];
+        bytes[..4].copy_from_slice(b"Vgm ");
+        put_u32(&mut bytes, 0x08, 0x171);
+        put_u32(&mut bytes, 0x34, (DATA_START - 0x34) as u32);
+        put_u32(
+            &mut bytes,
+            vgms_core::vgm::ChipKind::Sn76489.clock_offset(),
+            3_579_545,
+        );
+        let mut body = vec![0x50u8, 0x84, 0x50, 0x20, 0x50, 0x90];
+        body.extend_from_slice(&[0x61, 0x10, 0x27]); // wait 10000
+        body.extend_from_slice(&[0x50, 0x90]); // redundant
+        body.extend_from_slice(&[0x61, 0x10, 0x27]);
+        body.push(0x66);
+        bytes.extend_from_slice(&body);
+        let eof = bytes.len();
+        put_u32(&mut bytes, 0x04, (eof - 4) as u32);
+        bytes
+    }
+
+    #[test]
+    fn optimize_song_delivers_a_verified_result() {
+        // Cores installed so the render gate compares real audio, not silence.
+        crate::install_cores();
+        let mut service = NativePackService::new();
+        let bytes = sn76489_song();
+        service.optimize_song(SongOptimizeRequest {
+            name: "01 Tune.vgm".to_owned(),
+            bytes: bytes.clone(),
+            sample_roms: true,
+            dac_runs: true,
+            optimizer: vgms_core::config::OptimizerChoice::Auto,
+            output_rate: 44_100,
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let result = loop {
+            if let Some(result) = service.poll_optimized_song() {
+                break result;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for the song optimizer"
+            );
+            thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(result.name, "01 Tune.vgm");
+        assert_eq!(result.original_len, bytes.len());
+        // Whatever the tools decide, a verified result is never a bare failure,
+        // and an accepted shrink is smaller and still a readable VGM.
+        match result.outcome {
+            vgms_ui::SongOptimizeOutcome::Optimized(optimized) => {
+                assert!(
+                    optimized.len() < bytes.len(),
+                    "an accepted shrink is smaller"
+                );
+                assert_eq!(&optimized[..4], b"Vgm ", "and still a plain VGM");
+            }
+            vgms_ui::SongOptimizeOutcome::Unchanged => {}
+            other => panic!("a clean SN76489 file should not be kept back: {other:?}"),
+        }
     }
 
     #[test]

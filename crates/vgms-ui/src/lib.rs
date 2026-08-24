@@ -45,6 +45,7 @@ pub use pack::PackState;
 pub use platform::{
     ArchiveBackend, AudioService, ConfigStore, FileService, OptimizedImage, PackEntry,
     PackEntryKind, PackJobOutcome, PackJobRequest, PackOrigin, PackService, PickedFile,
-    PickedFolder, SaveOutcome, SaveRequest,
+    PickedFolder, SaveOutcome, SaveRequest, SongOptimizeOutcome, SongOptimizeRequest,
+    SongOptimizeResult,
 };
 pub use tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};
