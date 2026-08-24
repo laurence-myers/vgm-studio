@@ -1189,7 +1189,7 @@ impl Editor {
         } else {
             "Bank"
         };
-        ["Pos", second, "Reg.", "Value", "Description"]
+        ["Pos.", second, "Reg.", "Value", "Description"]
     }
 
     /// [`Self::row_cells`] for tests, which have only a shared reference.
