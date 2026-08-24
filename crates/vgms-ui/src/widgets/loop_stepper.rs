@@ -1,9 +1,10 @@
 //! The loop repeat-count stepper in the transport row.
 //!
-//! Counts `1..=9` and then "without end", which sits at the top of the range
-//! because more repeats is the direction it lies in. The count means *total
-//! passes over the region*, matching how players report a loop count, so `1` is
-//! "play it once and move on" rather than "repeat it once".
+//! Counts `1..=9` and then "without end". The values form a *ring*: stepping up
+//! past "without end" wraps back to `1`, and stepping down past `1` wraps to
+//! "without end", so neither arrow ever dead-ends. The count means *total passes
+//! over the region*, matching how players report a loop count, so `1` is "play it
+//! once and move on" rather than "repeat it once".
 
 use vgms_synth::LoopCount;
 
@@ -32,9 +33,8 @@ pub(crate) fn loop_count_stepper(
         if theme::bevel::button_sized(ui, palette, "\u{2212}", arrow)
             .on_hover_text(crate::strings::LOOP_STEPPER_FEWER)
             .clicked()
-            && let Some(fewer) = decrement(count)
         {
-            actions.push(Action::Loop(LoopAction::SetCount(fewer)));
+            actions.push(Action::Loop(LoopAction::SetCount(decrement(count))));
         }
 
         // The count in a sunken well, like the boost value beside it. Painted
@@ -52,28 +52,27 @@ pub(crate) fn loop_count_stepper(
         if theme::bevel::button_sized(ui, palette, "+", arrow)
             .on_hover_text(crate::strings::LOOP_STEPPER_MORE)
             .clicked()
-            && let Some(more) = increment(count)
         {
-            actions.push(Action::Loop(LoopAction::SetCount(more)));
+            actions.push(Action::Loop(LoopAction::SetCount(increment(count))));
         }
     });
 }
 
-/// The next count up, or `None` at the top of the range.
-fn increment(count: LoopCount) -> Option<LoopCount> {
+/// The next count up, wrapping "without end" back to `1\u{00d7}` at the top of the ring.
+fn increment(count: LoopCount) -> LoopCount {
     match count {
-        LoopCount::Infinite => None,
-        LoopCount::Times(times) if times >= MAX_FINITE => Some(LoopCount::Infinite),
-        LoopCount::Times(times) => Some(LoopCount::Times(times.max(1) + 1)),
+        LoopCount::Infinite => LoopCount::Times(1),
+        LoopCount::Times(times) if times >= MAX_FINITE => LoopCount::Infinite,
+        LoopCount::Times(times) => LoopCount::Times(times.max(1) + 1),
     }
 }
 
-/// The next count down, or `None` at the bottom.
-fn decrement(count: LoopCount) -> Option<LoopCount> {
+/// The next count down, wrapping `1\u{00d7}` to "without end" at the bottom of the ring.
+fn decrement(count: LoopCount) -> LoopCount {
     match count {
-        LoopCount::Infinite => Some(LoopCount::Times(MAX_FINITE)),
-        LoopCount::Times(times) if times <= 1 => None,
-        LoopCount::Times(times) => Some(LoopCount::Times(times - 1)),
+        LoopCount::Infinite => LoopCount::Times(MAX_FINITE),
+        LoopCount::Times(times) if times <= 1 => LoopCount::Infinite,
+        LoopCount::Times(times) => LoopCount::Times(times - 1),
     }
 }
 
@@ -89,19 +88,27 @@ mod tests {
     use super::*;
 
     #[test]
-    fn stepping_runs_from_one_up_to_without_end() {
-        assert_eq!(decrement(LoopCount::Times(1)), None, "1 is the floor");
-        assert_eq!(increment(LoopCount::Times(1)), Some(LoopCount::Times(2)));
+    fn stepping_wraps_around_the_ring() {
+        assert_eq!(increment(LoopCount::Times(1)), LoopCount::Times(2));
         assert_eq!(
             increment(LoopCount::Times(MAX_FINITE)),
-            Some(LoopCount::Infinite),
+            LoopCount::Infinite,
             "past the last finite count is 'without end'"
         );
-        assert_eq!(increment(LoopCount::Infinite), None, "and that is the top");
+        assert_eq!(
+            increment(LoopCount::Infinite),
+            LoopCount::Times(1),
+            "stepping up past 'without end' wraps to 1x"
+        );
         assert_eq!(
             decrement(LoopCount::Infinite),
-            Some(LoopCount::Times(MAX_FINITE)),
+            LoopCount::Times(MAX_FINITE),
             "stepping back down re-enters at the highest finite count"
+        );
+        assert_eq!(
+            decrement(LoopCount::Times(1)),
+            LoopCount::Infinite,
+            "stepping down past 1x wraps to 'without end'"
         );
     }
 
@@ -110,8 +117,8 @@ mod tests {
         // Nothing in the UI produces `Times(0)`, but the engine equates it with
         // "no repeat", so the stepper must not show or step it as something else.
         assert_eq!(label(LoopCount::Times(0)), "1\u{00d7}");
-        assert_eq!(decrement(LoopCount::Times(0)), None);
-        assert_eq!(increment(LoopCount::Times(0)), Some(LoopCount::Times(2)));
+        assert_eq!(decrement(LoopCount::Times(0)), LoopCount::Infinite);
+        assert_eq!(increment(LoopCount::Times(0)), LoopCount::Times(2));
     }
 
     #[test]
