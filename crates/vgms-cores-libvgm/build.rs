@@ -420,6 +420,26 @@ fn main() {
         .define("VGM_LITTLE_ENDIAN", None)
         .warnings(false);
 
+    // Redirect the cores' `rand`/`srand` to our deterministic, thread-local
+    // implementation (`src/rng.rs`) on every target, so a render never depends
+    // on a CRT's RNG history. Several cores randomise at reset (NES
+    // noise/triangle phase, SameBoy's DMG phantom reads) or dither with it;
+    // left on the platform `rand`, two renders of one file would differ,
+    // breaking `ChipCore`'s determinism promise and the optimiser's
+    // render-parity gate. Done via a force-included shim (not a `-Drand=`) so
+    // the platform's dllimport declaration of `rand` is not rewritten onto our
+    // own symbol -- see `shim/rand_shim.h`.
+    let rand_shim = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap())
+        .join("shim")
+        .join("rand_shim.h");
+    println!("cargo::rerun-if-changed={}", rand_shim.display());
+    let rand_shim = rand_shim.to_str().expect("shim path is UTF-8");
+    if build.get_compiler().is_like_msvc() {
+        build.flag(format!("/FI{rand_shim}"));
+    } else {
+        build.flag("-include").flag(rand_shim);
+    }
+
     if build.get_compiler().is_like_msvc() {
         // libvgm's cores use `strcpy`/`sprintf` freely; upstream's own CMake
         // silences the same warnings the same way.

@@ -233,29 +233,8 @@ pub extern "C" fn abs(value: c_int) -> c_int {
     value.wrapping_abs()
 }
 
-/// `rand`'s state -- a plain LCG behind an atomic, seeded to a constant.
-///
-/// adlibemu uses `rand` to dither its noise generator; a fixed seed keeps the
-/// output deterministic across runs and targets, which is [`ChipCore`]'s
-/// standing promise (`vgms_synth::chip::ChipCore`).
-static RAND_STATE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0x5DEECE66D);
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rand() -> c_int {
-    use std::sync::atomic::Ordering;
-    // Numerical Recipes' LCG constants; the high bits are the good ones.
-    let next = RAND_STATE
-        .load(Ordering::Relaxed)
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407);
-    RAND_STATE.store(next, Ordering::Relaxed);
-    ((next >> 33) & 0x7FFF_FFFF) as c_int
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn srand(seed: u32) {
-    RAND_STATE.store(u64::from(seed), std::sync::atomic::Ordering::Relaxed);
-}
+// `rand`/`srand` are not here: they are redirected to the deterministic,
+// all-targets implementation in `rng`, the same on wasm and native. See `rng`.
 
 #[unsafe(no_mangle)]
 pub extern "C" fn labs(value: c_long) -> c_long {

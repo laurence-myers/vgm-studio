@@ -45,6 +45,7 @@ mod fold;
 /// layout guard exists purely to fail a test.
 #[cfg(test)]
 mod layout;
+mod rng;
 mod specs;
 #[cfg(target_arch = "wasm32")]
 mod wasm_libc;

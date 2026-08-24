@@ -880,6 +880,12 @@ impl ChipCore for LibVgmChip {
     /// Restarts at `clock`, because libvgm reads the clock at construction and
     /// derives the sample rate from it.
     fn reset(&mut self, clock: u32, variant: bool) {
+        // Fix this thread's RNG baseline before the device restart below draws
+        // from it (the NES's reset noise, the DMG's phantom reads), so the file
+        // -- not the process's RNG history -- decides what a render produces.
+        // Setup and seek reset; rendering does not, so the stream a render
+        // draws from is left running. See `rng`.
+        crate::rng::seed_deterministic();
         self.clock = clock;
         self.variant = variant;
         // A reset discards the header settings too: `configure` always follows
@@ -1900,6 +1906,45 @@ mod tests {
                 kind.name()
             );
         }
+    }
+
+    /// A reset makes a render a pure function of the file, not of the process's
+    /// RNG history. The NES APU randomises its noise LFSR and triangle phase
+    /// with `rand()` at every reset; linked against a CRT's `rand`, two fresh
+    /// chips draw different seeds and render differently. Our `rand` redirect
+    /// (`crate::rng`) reseeds this thread to a fixed baseline on reset, so the
+    /// two agree -- which is what lets the optimiser's render-parity gate judge
+    /// a NES or Game Boy file at all. Without the fix this fails; with the CRT
+    /// `rand` it would even fail run-to-run.
+    #[test]
+    fn a_reset_makes_the_noise_seed_deterministic() {
+        // Drive the noise channel so the reset-seeded LFSR reaches the output:
+        // enable it ($4015 bit 3), constant max volume ($400C), fastest period
+        // in the long-sequence mode ($400E), then load the length ($400F).
+        let drive = |chip: &mut LibVgmChip| {
+            chip.reset(1_789_772, false);
+            chip.configure(&ChipSettings::default());
+            for (addr, data) in [(0x15u16, 0x08u16), (0x0C, 0x1F), (0x0E, 0x00), (0x0F, 0xF8)] {
+                chip.write(0, addr, data);
+            }
+            let mut out = vec![0i32; 4096];
+            chip.render(&mut out);
+            out
+        };
+
+        let mut first = LibVgmChip::new(spec(ChipKind::NesApu));
+        let mut second = LibVgmChip::new(spec(ChipKind::NesApu));
+        let a = drive(&mut first);
+        let b = drive(&mut second);
+
+        assert!(
+            a.iter().any(|&s| s != 0),
+            "the noise channel should have produced audio to compare"
+        );
+        assert_eq!(
+            a, b,
+            "two fresh NES chips must render identically: the reset reseeds the RNG"
+        );
     }
 
     /// Dropping a started chip stops its device. Nothing observable proves the
