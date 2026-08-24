@@ -104,7 +104,8 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
             // Avoids virtualized table cells flashing red for a few frames when scrolling
             // @see https://github.com/emilk/egui/issues/8092#issuecomment-4472455964
             #[cfg(debug_assertions)]
-            cc.egui_ctx.global_style_mut(|s| s.debug.warn_if_rect_changes_id = false);
+            cc.egui_ctx
+                .global_style_mut(|s| s.debug.warn_if_rect_changes_id = false);
 
             // The DOS-tracker look: fonts, palette and square bevelled chrome.
             vgms_ui::theme::install(&cc.egui_ctx, config.ui.theme);
