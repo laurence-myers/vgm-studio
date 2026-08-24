@@ -292,6 +292,17 @@ impl VgmStudioApp {
                                     self.loop_count,
                                     &mut actions,
                                 );
+                                // The "Loop N/M" indicator sits right beside the
+                                // loop controls it describes (it used to live in
+                                // the position panel, which now hides its sample
+                                // counter while a loop wraps).
+                                if let Some((iteration, count)) = self.loop_progress {
+                                    ui.label(egui::RichText::new(
+                                        crate::strings::position_panel_loop_progress(
+                                            iteration, count,
+                                        ),
+                                    ));
+                                }
                                 // The boost is applied to rendered samples, of which
                                 // hardware output produces none -- the board has its
                                 // own volume.
@@ -1311,6 +1322,15 @@ impl VgmStudioApp {
         self.boost_ceiling = self.audio.min_engaged_boost();
 
         let playing = self.audio.is_playing();
+        // The loop indicator (drawn by the transport deck) and the position
+        // panel's looping gate track the same fact: a loop actively repeating in
+        // the editor. The scaled total, not the user's pick: the numerator counts
+        // passes the engine derives from the same scaled count, so the two agree.
+        self.loop_progress = (self.active_tab == AppTab::Editor && self.loop_enabled && playing)
+            .then(|| self.audio.position())
+            .flatten()
+            .map(|position| (position.loop_iteration, self.loop_total));
+        self.position.set_looping(self.loop_progress.is_some());
         if self.active_tab == AppTab::Editor {
             // One more update after playback ends, so the readout and cursor land
             // on the exact final position instead of freezing a buffer short of
@@ -1334,13 +1354,6 @@ impl VgmStudioApp {
                     // special handling here.
                     self.waveform.cursor_ms = position.elapsed_ms;
                     self.position.set_position(position);
-                    self.position.set_loop_progress(
-                        // The scaled total, not the user's pick: the numerator
-                        // counts passes the engine derives from the same scaled
-                        // count, so the two agree.
-                        (self.loop_enabled && playing)
-                            .then_some((position.loop_iteration, self.loop_total)),
-                    );
                 }
                 ctx.request_repaint_after(Duration::from_millis(16));
             }

@@ -39,6 +39,18 @@ fn to_timestr(minutes: u32, seconds: u32) -> String {
     format!("{minutes:02}:{seconds:02}")
 }
 
+/// Formats a millisecond count as `MM:SS.mmm`, the transport readout's form.
+///
+/// The three fractional digits are whole milliseconds, which is all the source
+/// carries; minutes are not clamped, so a 100-minute song renders as `100:00.000`.
+#[must_use]
+pub fn ms_to_timestr_millis(ms: u32) -> String {
+    let minutes = ms / 60_000;
+    let seconds = (ms % 60_000) / 1000;
+    let millis = ms % 1000;
+    format!("{minutes:02}:{seconds:02}.{millis:03}")
+}
+
 /// Groups a sorted, de-duplicated list of indices into contiguous inclusive ranges.
 ///
 /// Deletion here is a single forward compaction pass, so ascending order is the
@@ -101,6 +113,18 @@ mod tests {
         assert_eq!(ms_to_timestr(2683), "00:02");
         // Minutes are never truncated to two digits.
         assert_eq!(ms_to_timestr(100 * 60_000), "100:00");
+    }
+
+    #[test]
+    fn timestr_millis_formatting() {
+        assert_eq!(ms_to_timestr_millis(0), "00:00.000");
+        assert_eq!(ms_to_timestr_millis(999), "00:00.999");
+        assert_eq!(ms_to_timestr_millis(1000), "00:01.000");
+        assert_eq!(ms_to_timestr_millis(1234), "00:01.234");
+        assert_eq!(ms_to_timestr_millis(59_999), "00:59.999");
+        assert_eq!(ms_to_timestr_millis(60_000), "01:00.000");
+        // Minutes are never truncated to two digits.
+        assert_eq!(ms_to_timestr_millis(100 * 60_000 + 5), "100:00.005");
     }
 
     #[test]

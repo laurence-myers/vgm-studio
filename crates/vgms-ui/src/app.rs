@@ -376,6 +376,11 @@ pub struct VgmStudioApp {
     /// progress readout, so it agrees with what is heard. Equal to `loop_count`
     /// for a user-drawn region or a DRO, which are not rescaled.
     loop_total: LoopCount,
+    /// The loop pass currently heard as `(iteration, total)`, or `None` when no
+    /// loop is repeating. Set each tick from the backend's position; the
+    /// transport deck draws the "Loop N/M" indicator from it, and the position
+    /// panel reads its presence to hide the sample counter.
+    loop_progress: Option<(u32, LoopCount)>,
     /// Whether the previous frame was playing, so the frame after playback
     /// ends can display the exact final position.
     was_playing: bool,

@@ -57,6 +57,7 @@ impl VgmStudioApp {
             loop_enabled: false,
             loop_count: LoopCount::Infinite,
             loop_total: LoopCount::Infinite,
+            loop_progress: None,
             was_playing: false,
             pending_open: initial_file,
             pending_load: None,

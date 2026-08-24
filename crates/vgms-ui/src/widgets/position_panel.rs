@@ -1,11 +1,13 @@
 //! The playback position panel.
 //!
-//! Three sections: "pos / len ms", "pos / len samples", and a read-only
-//! sample-rate dropdown that re-denominates the sample counts to 44.1 kHz.
-//! The counts are true frames, and the length is the *measured* total delay,
-//! not the header's `ms_length`.
+//! Three sections: "pos / len" as `MM:SS.mmm`, "pos / len samples", and a
+//! read-only sample-rate dropdown that re-denominates the sample counts to
+//! 44.1 kHz. The counts are true frames, and the length is the *measured* total
+//! delay, not the header's `ms_length`. While a loop is repeating the position
+//! wraps, so the sample counter and the rate picker are both hidden and the
+//! "Loop N/M" indicator sits by the loop controls in the transport deck.
 
-use vgms_synth::{LoopCount, Position};
+use vgms_synth::Position;
 
 use crate::theme::Palette;
 
@@ -27,8 +29,11 @@ pub(crate) struct PositionPanel {
     length_frames: u64,
     /// Whether the user picked "44.1 khz" while rendering at another rate.
     show_at_44100: bool,
-    /// "Loop 2 / 5" while a loop is repeating, replacing the sample counter.
-    loop_progress: Option<String>,
+    /// Whether a loop is currently repeating. While it is, the sample counter and
+    /// the rate picker are both hidden -- the position wraps, so neither is
+    /// meaningful -- and the "Loop N/M" indicator sits by the loop controls in the
+    /// transport deck instead.
+    looping: bool,
 }
 
 impl PositionPanel {
@@ -41,7 +46,7 @@ impl PositionPanel {
             length_ms: 0,
             length_frames: 0,
             show_at_44100: false,
-            loop_progress: None,
+            looping: false,
         }
     }
 
@@ -90,14 +95,11 @@ impl PositionPanel {
         self.position_frames = position.frames_rendered;
     }
 
-    /// Which pass of the loop is playing, or `None` to show the sample counter.
-    ///
-    /// `iteration` is how many times playback has jumped back, so the pass being
-    /// heard is one more than that.
-    pub(crate) fn set_loop_progress(&mut self, progress: Option<(u32, LoopCount)>) {
-        self.loop_progress = progress.map(|(iteration, count)| {
-            crate::strings::position_panel_loop_progress(iteration, count)
-        });
+    /// Whether a loop is repeating. While it is, the sample counter and the rate
+    /// picker are hidden (the position wraps). The "Loop N/M" indicator itself is
+    /// drawn by the transport deck, beside the loop controls.
+    pub(crate) fn set_looping(&mut self, looping: bool) {
+        self.looping = looping;
     }
 
     pub(crate) fn show(&mut self, ui: &mut egui::Ui, palette: &Palette) {
@@ -112,7 +114,7 @@ impl PositionPanel {
 
         // Taken before the closures so they do not each need `self`.
         let (position_ms, length_ms) = (self.position_ms, self.length_ms);
-        let loop_progress = self.loop_progress.clone();
+        let looping = self.looping;
 
         // `Extend` on these labels, not the default `Wrap`: a
         // `centered_and_justified` column justifies its text, and when a long
@@ -124,19 +126,28 @@ impl PositionPanel {
         };
         ui.columns(3, |columns| {
             columns[0].centered_and_justified(|ui| {
-                readout(ui, format!("{position_ms} / {length_ms} ms"));
+                readout(
+                    ui,
+                    format!(
+                        "{} / {}",
+                        vgms_core::util::ms_to_timestr_millis(position_ms),
+                        vgms_core::util::ms_to_timestr_millis(length_ms)
+                    ),
+                );
             });
             columns[1].centered_and_justified(|ui| {
-                // While a loop is running, which pass it is on matters more than
-                // the sample count, and the two would not fit together.
-                let text = match &loop_progress {
-                    Some(progress) => progress.clone(),
-                    None => format!("{position_frames} / {length_frames} samples"),
-                };
-                readout(ui, text);
+                // While a loop runs the position wraps, so the linear sample count
+                // is hidden; the "Loop N/M" indicator sits by the loop controls.
+                if !looping {
+                    readout(ui, format!("{position_frames} / {length_frames} samples"));
+                }
             });
             columns[2].with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                self.rate_picker(ui, palette);
+                // The rate picker re-denominates the sample count, so it goes when
+                // that count does.
+                if !looping {
+                    self.rate_picker(ui, palette);
+                }
             });
         });
     }
