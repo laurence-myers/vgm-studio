@@ -299,6 +299,11 @@ pub enum PackAction {
     OpenFolderAt(std::path::PathBuf),
     /// Open the quick-edit dialog (rename + GD3) for a track.
     OpenTrackQuickEdit(usize),
+    /// Optimise one track's VGM, verify it renders identically, and write the
+    /// smaller file back in place (the per-track render-gated optimise).
+    OptimizeTrack(usize),
+    /// Optimise every readable track in turn, each verified and written back.
+    OptimizeAllTracks,
     /// Open the file picker for a `.zip` to edit as an in-memory pack (wt-8).
     /// The picked file arrives on the ordinary picked-file channel, so the
     /// discard-changes prompt is the same one a dropped `.zip` raises.

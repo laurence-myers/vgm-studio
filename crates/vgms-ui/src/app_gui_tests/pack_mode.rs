@@ -2088,6 +2088,163 @@ fn an_already_optimal_screenshot_is_not_rewritten() {
     assert!(harness.state().status.contains("already optimal"));
 }
 
+/// The original bytes of the pack track at `index`, for a savings figure.
+fn track_len(harness: &Harness<'static, VgmStudioApp>, index: usize) -> usize {
+    harness.state().pack.as_ref().unwrap().tracks[index]
+        .bytes
+        .len()
+}
+
+#[test]
+fn optimizing_a_track_saves_the_verified_smaller_file_in_place() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    pack_section(&mut harness, PackSection::Tracks);
+
+    act(&mut harness, Action::Pack(PackAction::OptimizeTrack(0)));
+    harness.run();
+    {
+        let pack = handles.pack.borrow();
+        assert_eq!(pack.song_optimize_requests.len(), 1);
+        assert_eq!(pack.song_optimize_requests[0].name, "01 Intro.vgz");
+    }
+
+    // The service returns a verified, smaller file.
+    let original_len = track_len(&harness, 0);
+    handles
+        .pack
+        .borrow_mut()
+        .song_optimized_outcomes
+        .push_back(SongOptimizeResult {
+            name: "01 Intro.vgz".to_owned(),
+            original_len,
+            outcome: SongOptimizeOutcome::Optimized(b"Vgm  smaller".to_vec()),
+            log: Vec::new(),
+        });
+    harness.run();
+
+    // Written back over the original file...
+    match handles
+        .files
+        .borrow()
+        .save_requests
+        .last()
+        .expect("a save request")
+    {
+        SaveRequest::InPlace { path, bytes } => {
+            assert!(path.to_string_lossy().ends_with("01 Intro.vgz"));
+            assert_eq!(bytes, b"Vgm  smaller");
+        }
+        other => panic!("expected an in-place save, got {other:?}"),
+    }
+    // ...and the savings column records the verified shrink.
+    let status = harness
+        .state()
+        .pack
+        .as_ref()
+        .unwrap()
+        .optimize_results
+        .get("01 Intro.vgz")
+        .copied();
+    assert!(
+        matches!(status, Some(TrackOptimizeStatus::Saved { .. })),
+        "the savings column should record a shrink, got {status:?}"
+    );
+}
+
+#[test]
+fn a_track_that_renders_differently_is_left_untouched() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    pack_section(&mut harness, PackSection::Tracks);
+
+    act(&mut harness, Action::Pack(PackAction::OptimizeTrack(0)));
+    harness.run();
+    let original_len = track_len(&harness, 0);
+
+    // A corrupting stage: the pass shrank the file, but it renders differently.
+    handles
+        .pack
+        .borrow_mut()
+        .song_optimized_outcomes
+        .push_back(SongOptimizeResult {
+            name: "01 Intro.vgz".to_owned(),
+            original_len,
+            outcome: SongOptimizeOutcome::KeptDiffered(
+                "render differed at sample 42 of 100".to_owned(),
+            ),
+            log: Vec::new(),
+        });
+    harness.run();
+
+    // The file is untouched, the status says why, and the column shows it.
+    assert!(
+        handles.files.borrow().save_requests.is_empty(),
+        "a render-changing result must not rewrite the file"
+    );
+    assert!(
+        harness.state().status.contains("kept original"),
+        "the status should say the original was kept, got {:?}",
+        harness.state().status
+    );
+    let status = harness
+        .state()
+        .pack
+        .as_ref()
+        .unwrap()
+        .optimize_results
+        .get("01 Intro.vgz")
+        .copied();
+    assert_eq!(status, Some(TrackOptimizeStatus::KeptDiffered));
+}
+
+#[test]
+fn optimize_all_sweeps_tracks_one_after_another() {
+    let (mut harness, handles) = tall_pack_harness();
+    open_folder(&mut harness, &handles, cool_game_folder());
+    pack_section(&mut harness, PackSection::Tracks);
+
+    // The sweep sends the first track and waits: the second must not be sent
+    // until the first has been written back (the single undo slot is in use).
+    act(&mut harness, Action::Pack(PackAction::OptimizeAllTracks));
+    harness.run();
+    let first_len = track_len(&harness, 0);
+    handles
+        .pack
+        .borrow_mut()
+        .song_optimized_outcomes
+        .push_back(SongOptimizeResult {
+            name: "01 Intro.vgz".to_owned(),
+            original_len: first_len,
+            outcome: SongOptimizeOutcome::Optimized(b"Vgm  first".to_vec()),
+            log: Vec::new(),
+        });
+    harness.run();
+    assert_eq!(
+        handles.pack.borrow().song_optimize_requests.len(),
+        1,
+        "the second track waits until the first has been written back"
+    );
+
+    // Complete the first track's save: the sweep then advances to the second.
+    handles
+        .files
+        .borrow_mut()
+        .save_outcomes
+        .push_back(SaveOutcome::Saved {
+            name: "01 Intro.vgz".to_owned(),
+            path: Some(PathBuf::from("C:/Cool Game/01 Intro.vgz")),
+        });
+    harness.run();
+    let requests = handles.pack.borrow();
+    assert_eq!(
+        requests.song_optimize_requests.len(),
+        2,
+        "the sweep advances"
+    );
+    assert_eq!(requests.song_optimize_requests[1].name, "02 Boss.vgm");
+}
+
 #[test]
 fn exporting_submits_a_job_and_saves_the_returned_zip() {
     let (mut harness, handles) = empty_harness();

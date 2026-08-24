@@ -518,6 +518,8 @@ impl VgmStudioApp {
             PackAction::OpenFolder => self.on_open_pack_folder(),
             PackAction::OpenFolderAt(path) => self.files.open_folder_path(path),
             PackAction::OpenTrackQuickEdit(index) => self.open_track_quick_edit(index),
+            PackAction::OptimizeTrack(index) => self.optimize_track(index),
+            PackAction::OptimizeAllTracks => self.optimize_all_tracks(),
             // No dirty prompt here: the picked `.zip` comes back through
             // `load_or_confirm`, which raises it once the file is in hand --
             // asking before the picker would prompt even for a dismissed one.

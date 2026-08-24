@@ -372,6 +372,26 @@ pub(crate) fn app_status_optimizing(name: &str) -> String {
     format!("Optimizing {name}...")
 }
 
+/// The status line while a sweep optimises one track of several.
+pub(crate) fn app_status_optimizing_track(name: &str, n: usize, total: usize) -> String {
+    format!("Optimizing {name} ({n}/{total})...")
+}
+
+/// The busy-spinner readout counting an "Optimize All" sweep off track by track.
+pub(crate) fn app_busy_optimizing_tracks(done: usize, total: usize) -> String {
+    format!("Optimizing song {} / {total}", (done + 1).min(total.max(1)))
+}
+
+/// The one-line summary once a sweep finishes.
+pub(crate) fn app_status_optimized_tracks(_done: usize, total: usize) -> String {
+    format!("Finished optimizing {total} track(s).")
+}
+
+/// The status line when a per-track optimise kept the original, and why.
+pub(crate) fn app_status_optimize_kept(name: &str, reason: &str) -> String {
+    format!("{name}: kept original -- {reason}.")
+}
+
 pub(crate) fn app_status_already_optimal(name: &str, bytes: impl std::fmt::Display) -> String {
     format!("{name} is already optimal ({bytes} bytes).")
 }
@@ -467,6 +487,14 @@ pub(crate) fn app_play_seam_label(tail: impl std::fmt::Display) -> String {
 pub(crate) const PACK_DIRTY_TIP: &str = "The package metadata has unsaved edits";
 pub(crate) const PACK_SCAN_VOLUMES_TIP_SCANNING: &str = "Measuring every track's peak volume...";
 pub(crate) const PACK_SCAN_VOLUMES_TIP: &str = "Measure every track's peak volume (dBFS)";
+// The per-track optimise is native-only (it renders both files to compare
+// them, D-orw-7), so its tooltips would be dead code on the web.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) const PACK_OPTIMIZE_ALL_TIP: &str =
+    "Optimize every track, verify each renders identically, and write the smaller files back";
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) const PACK_OPTIMIZE_DISABLED_TIP: &str =
+    "This track has no file on disk to optimize in place";
 pub(crate) const PACK_APPLY_TIP_SCANNED: &str = "Write volume modifiers to each track";
 pub(crate) const PACK_APPLY_TIP_UNSCANNED: &str = "Scan volumes first";
 pub(crate) const PACK_ALBUM_TIP: &str =

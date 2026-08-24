@@ -15,6 +15,10 @@ impl VgmStudioApp {
             || self.pending_pack_undo.is_some()
             || self.pending_rewrite.is_some()
             || self.pack_service.is_busy()
+            // An "Optimize All" sweep still has tracks to send: it holds the
+            // service between one track's write-back and the next dispatch, so
+            // count it busy or a click in that window could interleave.
+            || !self.pending_song_optimize.is_empty()
     }
 
     /// Starts running `transaction` -- its `forward` mutations, or (for `Undo`)
@@ -977,6 +981,196 @@ impl VgmStudioApp {
             path,
             bytes: optimized.bytes,
         });
+    }
+
+    /// Optimises one track's VGM, verifying it renders identically before the
+    /// smaller file is written back in place (D-orw-5). A single-track optimise
+    /// is a sweep of one.
+    pub(super) fn optimize_track(&mut self, index: usize) {
+        let name = self
+            .pack
+            .as_ref()
+            .and_then(|pack| pack.tracks.get(index))
+            .filter(|track| track.is_readable() && track.path.is_some())
+            .map(|track| track.file_name.clone());
+        if let Some(name) = name {
+            self.start_song_optimize(vec![name]);
+        }
+    }
+
+    /// Optimises every readable track that has a path, one verified pass after
+    /// another, each written back in place.
+    pub(super) fn optimize_all_tracks(&mut self) {
+        let names: Vec<String> = self.pack.as_ref().map_or_else(Vec::new, |pack| {
+            pack.tracks
+                .iter()
+                .filter(|track| track.is_readable() && track.path.is_some())
+                .map(|track| track.file_name.clone())
+                .collect()
+        });
+        self.start_song_optimize(names);
+    }
+
+    /// Begins optimising `names` in order, off the UI thread, one at a time.
+    fn start_song_optimize(&mut self, names: Vec<String>) {
+        if self.pack_busy() || names.is_empty() {
+            return;
+        }
+        self.song_optimize_progress = Some((0, names.len()));
+        self.pending_song_optimize = names.into_iter().collect();
+        self.dispatch_next_song_optimize();
+    }
+
+    /// Sends the next queued track to the optimiser, skipping any that have since
+    /// vanished, and finishing the sweep when the queue is empty.
+    fn dispatch_next_song_optimize(&mut self) {
+        while let Some(name) = self.pending_song_optimize.pop_front() {
+            if let Some(request) = self.song_optimize_request(&name) {
+                self.status = self.song_optimize_status(&name);
+                self.pack_service.optimize_song(request);
+                return;
+            }
+            // The track was renamed or removed between queueing and now: count
+            // it done so the progress total still lines up, and move on.
+            self.bump_song_optimize_done();
+        }
+        self.finish_song_optimize_sweep();
+    }
+
+    /// Builds the optimise request for the track named `name`, or `None` when it
+    /// is gone, unreadable, or has no path to write back to.
+    fn song_optimize_request(&self, name: &str) -> Option<SongOptimizeRequest> {
+        let track = self
+            .pack
+            .as_ref()?
+            .tracks
+            .iter()
+            .find(|track| track.file_name == name)?;
+        if !track.is_readable() || track.path.is_none() {
+            return None;
+        }
+        Some(SongOptimizeRequest {
+            name: track.file_name.clone(),
+            bytes: track.bytes.clone(),
+            // The ROM/DAC switches follow the Settings optimiser choice; until
+            // Stage 3 surfaces them they take the pipeline's own defaults.
+            sample_roms: true,
+            dac_runs: true,
+            optimizer: self.config.optimizer,
+            output_rate: self.config.audio.frequency,
+        })
+    }
+
+    /// The status line while `name` is being optimised: a plain "Optimizing X…"
+    /// for a single track, an "N / M" readout during a sweep.
+    fn song_optimize_status(&self, name: &str) -> String {
+        match self.song_optimize_progress {
+            Some((done, total)) if total > 1 => {
+                crate::strings::app_status_optimizing_track(name, done + 1, total)
+            }
+            _ => crate::strings::app_status_optimizing(name),
+        }
+    }
+
+    /// Counts one track finished (optimised, kept, or skipped) for the progress
+    /// readout.
+    fn bump_song_optimize_done(&mut self) {
+        if let Some(progress) = self.song_optimize_progress.as_mut() {
+            progress.0 = (progress.0 + 1).min(progress.1);
+        }
+    }
+
+    /// Clears the sweep's progress, reporting a one-line summary when more than
+    /// one track was swept.
+    fn finish_song_optimize_sweep(&mut self) {
+        if let Some((done, total)) = self.song_optimize_progress.take()
+            && total > 1
+        {
+            self.status = crate::strings::app_status_optimized_tracks(done, total);
+        }
+    }
+
+    /// Routes a finished per-track optimise: record its savings-column status,
+    /// write a verified shrink back in place, and (for the write-back case) let
+    /// the save's outcome advance the sweep; otherwise advance it now.
+    pub(super) fn song_optimized(&mut self, result: SongOptimizeResult) {
+        self.bump_song_optimize_done();
+
+        let status = match &result.outcome {
+            SongOptimizeOutcome::Optimized(bytes) => TrackOptimizeStatus::Saved {
+                from: result.original_len,
+                to: bytes.len(),
+            },
+            SongOptimizeOutcome::Unchanged => TrackOptimizeStatus::Optimal,
+            SongOptimizeOutcome::KeptDiffered(_) => TrackOptimizeStatus::KeptDiffered,
+            SongOptimizeOutcome::Unverifiable(_) | SongOptimizeOutcome::Failed(_) => {
+                TrackOptimizeStatus::Unverifiable
+            }
+        };
+        if let Some(pack) = self.pack.as_mut() {
+            pack.optimize_results.insert(result.name.clone(), status);
+        }
+
+        match result.outcome {
+            SongOptimizeOutcome::Optimized(bytes) => {
+                // The path and pre-optimise bytes, for the undo transaction's
+                // inverse -- mirroring the screenshot optimise (`image_optimized`).
+                let found = self.pack.as_ref().and_then(|pack| {
+                    pack.tracks
+                        .iter()
+                        .find(|track| track.file_name == result.name)
+                        .and_then(|track| {
+                            track.path.clone().map(|path| (path, track.bytes.clone()))
+                        })
+                });
+                let Some((path, old_bytes)) = found else {
+                    // The track vanished before its result landed: nothing to
+                    // write, but the sweep must still move on.
+                    self.status = crate::strings::app_status_no_path(&result.name);
+                    self.dispatch_next_song_optimize();
+                    return;
+                };
+                self.status = crate::strings::app_status_optimized_bytes(
+                    &result.name,
+                    result.original_len,
+                    bytes.len(),
+                );
+                self.pending_pack_undo = Some(PackTransaction {
+                    label: format!("Optimize {}", result.name),
+                    forward: vec![PackMutation::Write {
+                        path: path.clone(),
+                        bytes: bytes.clone(),
+                    }],
+                    inverse: vec![PackMutation::Write {
+                        path: path.clone(),
+                        bytes: old_bytes,
+                    }],
+                });
+                self.pending_saves.push_back(SavePurpose::SongOptimized);
+                self.files.save(SaveRequest::InPlace { path, bytes });
+                // The sweep advances from the save's outcome, not here:
+                // `pending_pack_undo` is a single slot the next track's write
+                // would clobber before this one committed.
+            }
+            SongOptimizeOutcome::Unchanged => {
+                self.status =
+                    crate::strings::app_status_already_optimal(&result.name, result.original_len);
+                self.dispatch_next_song_optimize();
+            }
+            SongOptimizeOutcome::KeptDiffered(reason)
+            | SongOptimizeOutcome::Unverifiable(reason)
+            | SongOptimizeOutcome::Failed(reason) => {
+                self.status = crate::strings::app_status_optimize_kept(&result.name, &reason);
+                self.dispatch_next_song_optimize();
+            }
+        }
+    }
+
+    /// Continues an "Optimize All" sweep after a track's write-back has landed
+    /// (or failed): the previous transaction is settled, so the next track is
+    /// safe to send.
+    pub(super) fn advance_song_optimize_sweep(&mut self) {
+        self.dispatch_next_song_optimize();
     }
 
     /// Copies a picked screenshot into the open pack's folder, then rescans so

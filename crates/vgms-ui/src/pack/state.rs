@@ -254,6 +254,50 @@ impl PackSection {
     }
 }
 
+/// What a verified per-track optimise made of a song, for the Tracks table's
+/// savings column beside Peak. Kept per file name on [`PackState`], the same
+/// cheap-per-frame home the Peak column's [`PackState::peaks`] uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackOptimizeStatus {
+    /// Shrank on disk and verified identical: the sizes before and after.
+    Saved { from: usize, to: usize },
+    /// Nothing to gain on disk -- already optimal.
+    Optimal,
+    /// Kept the original because the render differed.
+    KeptDiffered,
+    /// Kept the original because the result could not be verified, or the pass
+    /// itself could not run.
+    Unverifiable,
+}
+
+impl TrackOptimizeStatus {
+    /// The savings column's short label, e.g. `-19.6%`, `optimal`, `kept`.
+    #[must_use]
+    pub fn label(self) -> String {
+        match self {
+            Self::Saved { from, to } if from > 0 => {
+                let saved = from.saturating_sub(to);
+                format!("-{:.1}%", saved as f64 * 100.0 / from as f64)
+            }
+            Self::Saved { .. } => "-".to_owned(),
+            Self::Optimal => "optimal".to_owned(),
+            Self::KeptDiffered => "kept".to_owned(),
+            Self::Unverifiable => "kept".to_owned(),
+        }
+    }
+
+    /// The full sentence for the cell's hover tooltip.
+    #[must_use]
+    pub fn tooltip(self) -> &'static str {
+        match self {
+            Self::Saved { .. } => "Optimized and verified: renders identically.",
+            Self::Optimal => "Already optimal: nothing to gain.",
+            Self::KeptDiffered => "Kept the original: the optimized file rendered differently.",
+            Self::Unverifiable => "Kept the original: the optimized file could not be verified.",
+        }
+    }
+}
+
 /// The whole pack project: what a folder scan produced, plus the editable
 /// package metadata.
 #[derive(Debug)]
@@ -284,6 +328,12 @@ pub struct PackState {
     /// survives a rescan/reorder). Filled by "Scan Volumes"; drives the Peak
     /// column and the suggested modifiers.
     pub peaks: HashMap<String, Peak>,
+    /// The result of a verified per-track optimise, keyed by `file_name`. Drives
+    /// the Tracks table's savings column. Kept across a rescan (the optimise
+    /// rewrites the file, so a peaks-style audio-equality prune would erase its
+    /// own record); cleared only when the pack is reopened or a track is
+    /// re-optimised.
+    pub optimize_results: HashMap<String, TrackOptimizeStatus>,
     /// Whether "Apply suggested modifiers" levels the whole pack by its loudest
     /// track (album mode, the VGMRips convention) rather than normalising each
     /// track to its own peak.
@@ -370,6 +420,7 @@ impl PackState {
             optimize_on_export: true,
             preview: None,
             peaks: HashMap::new(),
+            optimize_results: HashMap::new(),
             album_normalize: true,
             focus_field: None,
             section: PackSection::default(),

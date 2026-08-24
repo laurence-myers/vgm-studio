@@ -13,7 +13,7 @@ use vgms_core::pack::{CONSOLE_PRESETS, PRESETS, format_byte_count, format_track_
 use crate::action::{Action, PackAction};
 use crate::theme::{Palette, bevel};
 
-use super::state::{PackImage, PackSection, PackState, PackTrack};
+use super::state::{PackImage, PackSection, PackState, PackTrack, TrackOptimizeStatus};
 
 /// Draws the pack view: the pack's name, the sub-section tabs, the batch tools
 /// that belong to the open section, and that section's body.
@@ -22,6 +22,7 @@ pub fn show(
     state: &mut PackState,
     palette: &Palette,
     scanning: bool,
+    optimizing: bool,
     actions: &mut Vec<Action>,
 ) {
     ui.spacing_mut().item_spacing = egui::vec2(8.0, 6.0);
@@ -45,7 +46,7 @@ pub fn show(
     // different verbs, and mixing them in one row was what overflowed the old
     // header.
     if state.section == PackSection::Tracks {
-        track_tools(ui, state, palette, scanning, actions);
+        track_tools(ui, state, palette, scanning, optimizing, actions);
     }
 
     if let Some(warning) = &state.parse_warning {
@@ -122,6 +123,7 @@ fn track_tools(
     state: &mut PackState,
     palette: &Palette,
     scanning: bool,
+    optimizing: bool,
     actions: &mut Vec<Action>,
 ) {
     ui.horizontal(|ui| {
@@ -190,6 +192,30 @@ fn track_tools(
                 }
             });
         });
+        // The verified per-track optimise is native-only (it renders both files
+        // to compare them, D-orw-7), so the whole group is too -- the web pack
+        // has no gate to offer.
+        #[cfg(not(target_arch = "wasm32"))]
+        crate::theme::silkscreen_group(ui, palette.data_label, "OPTIMIZE", |ui| {
+            let any = state
+                .tracks
+                .iter()
+                .any(|track| track.is_readable() && track.path.is_some());
+            // Greyed while a sweep or a volume scan is running; the app also
+            // guards, so a stray click during either is a no-op regardless.
+            ui.add_enabled_ui(any && !optimizing && !scanning, |ui| {
+                if bevel::button(ui, palette, "Optimize All")
+                    .on_hover_text(crate::strings::PACK_OPTIMIZE_ALL_TIP)
+                    .clicked()
+                {
+                    actions.push(Action::Pack(PackAction::OptimizeAllTracks));
+                }
+            });
+        });
+        // `optimizing` only drives the native group above; name it used so the
+        // web build does not warn.
+        #[cfg(target_arch = "wasm32")]
+        let _ = optimizing;
     });
 }
 
@@ -803,9 +829,21 @@ fn track_table(
             .column(Column::exact(46.0)) // Total
             .column(Column::exact(46.0)) // Loop
             .column(Column::exact(50.0)) // Peak (dBFS)
+            .column(Column::exact(54.0)) // Opt (savings)
             .column(Column::exact(20.0)) // row menu
             .header(row_height + 2.0, |mut header| {
-                for title in ["", "", "#", "", "Title (GD3)", "Total", "Loop", "Peak", ""] {
+                for title in [
+                    "",
+                    "",
+                    "#",
+                    "",
+                    "Title (GD3)",
+                    "Total",
+                    "Loop",
+                    "Peak",
+                    "Opt",
+                    "",
+                ] {
                     header.col(|ui| {
                         ui.label(
                             egui::RichText::new(title)
@@ -952,6 +990,37 @@ fn track_table(
                                 }
                             });
                             row.col(|ui| {
+                                // The savings of a verified per-track optimise,
+                                // once one has run: "-19.6%" / "optimal" /
+                                // "kept". "-" until then, like Peak.
+                                match state.optimize_results.get(&track.file_name) {
+                                    Some(status) => {
+                                        let color = if matches!(
+                                            status,
+                                            TrackOptimizeStatus::KeptDiffered
+                                                | TrackOptimizeStatus::Unverifiable
+                                        ) {
+                                            palette.meter_high
+                                        } else {
+                                            palette.data_text
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(status.label())
+                                                .monospace()
+                                                .color(color),
+                                        )
+                                        .on_hover_text(status.tooltip());
+                                    }
+                                    None => {
+                                        ui.label(
+                                            egui::RichText::new("-")
+                                                .monospace()
+                                                .color(palette.muted),
+                                        );
+                                    }
+                                }
+                            });
+                            row.col(|ui| {
                                 row_menu(ui, index, track, palette, actions);
                             });
                         }
@@ -960,8 +1029,9 @@ fn track_table(
                                 ui.colored_label(palette.muted, "unreadable")
                                     .on_hover_text(track.error().unwrap_or_default());
                             });
-                            // Total, Loop, Peak, menu -- empty for a track
+                            // Total, Loop, Peak, Opt, menu -- empty for a track
                             // that did not parse.
+                            row.col(|_ui| {});
                             row.col(|_ui| {});
                             row.col(|_ui| {});
                             row.col(|_ui| {});
@@ -1078,6 +1148,20 @@ fn row_menu(
             if ui.button("Quick edit\u{2026}").clicked() {
                 actions.push(Action::Pack(PackAction::OpenTrackQuickEdit(index)));
                 ui.close();
+            }
+            // The verified per-track optimise: native-only (it renders both
+            // files to compare them, D-orw-7). A track with no path on disk to
+            // write back to (a zip-opened pack) cannot take it.
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let optimizable = track.is_readable() && track.path.is_some();
+                let optimize = ui.add_enabled(optimizable, egui::Button::new("Optimize"));
+                if !optimizable {
+                    optimize.on_disabled_hover_text(crate::strings::PACK_OPTIMIZE_DISABLED_TIP);
+                } else if optimize.clicked() {
+                    actions.push(Action::Pack(PackAction::OptimizeTrack(index)));
+                    ui.close();
+                }
             }
         })
         .0

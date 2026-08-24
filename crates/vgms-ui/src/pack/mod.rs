@@ -20,7 +20,7 @@ mod view;
 
 pub use state::{
     PackImage, PackMutation, PackSection, PackSong, PackState, PackTrack, PackTransaction,
-    PackValidations, reorder_renames,
+    PackValidations, TrackOptimizeStatus, reorder_renames,
 };
 pub use tags::{BulkTagOverlay, seed_from_meta};
 pub use view::{deck, show};

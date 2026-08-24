@@ -153,7 +153,14 @@ impl VgmStudioApp {
                             // visibly lives (the busy repaint cadence comes from
                             // `playback_tick`'s 100ms request while tasks run).
                             let spin = spinner_frame(ui.input(|input| input.time));
-                            if self.pack_service.is_busy() {
+                            // A per-track optimise counts its tracks off, like the
+                            // volume scan; anything else busy just shows liveness.
+                            if let Some((done, total)) = self.song_optimize_progress {
+                                ui.label(format!(
+                                    "{spin} {}",
+                                    crate::strings::app_busy_optimizing_tracks(done, total)
+                                ));
+                            } else if self.pack_service.is_busy() {
                                 // The status text names the operation (export or a
                                 // screenshot optimise); this just shows liveness.
                                 ui.label(format!("{spin} {}", crate::strings::APP_BUSY_WORKING));
@@ -372,11 +379,13 @@ impl VgmStudioApp {
                             .iter()
                             .any(|event| matches!(event, egui::Event::PointerMoved(_)))
                     });
+                    let optimizing = self.song_optimize_progress.is_some()
+                        || !self.pending_song_optimize.is_empty();
                     if let Some(pack) = self.pack.as_mut() {
                         if pointer_moved {
                             pack.focused_track = None;
                         }
-                        crate::pack::show(ui, pack, p, scanning, &mut actions);
+                        crate::pack::show(ui, pack, p, scanning, optimizing, &mut actions);
                     }
                 }
             });
@@ -629,6 +638,9 @@ impl VgmStudioApp {
                 }
             }
         }
+        if let Some(result) = self.pack_service.poll_optimized_song() {
+            self.song_optimized(result);
+        }
         for result in self.tasks.poll() {
             match result {
                 TaskResult::Waveform(buckets) => self.waveform.buckets = buckets,
@@ -869,6 +881,18 @@ impl VgmStudioApp {
                     }
                     self.rescan_pack_folder();
                 }
+                SavePurpose::SongOptimized => {
+                    // As TrackRewrite: the optimised file landed, so its undo
+                    // transaction becomes reversible and the folder is rescanned
+                    // (which keeps the savings column). Only now is the single
+                    // undo slot free, so the sweep advances to the next track.
+                    if let Some(transaction) = self.pending_pack_undo.take() {
+                        self.pack_undo.push(transaction);
+                        self.pack_redo.clear();
+                    }
+                    self.rescan_pack_folder();
+                    self.advance_song_optimize_sweep();
+                }
                 SavePurpose::ScreenshotAdded => {
                     self.rescan_pack_folder();
                     self.status = crate::strings::app_status_screenshot_added(&name);
@@ -906,6 +930,12 @@ impl VgmStudioApp {
                 SavePurpose::TrackRewrite | SavePurpose::ImageWritten => {
                     self.pending_pack_undo = None;
                 }
+                SavePurpose::SongOptimized => {
+                    // The write was cancelled; drop its transaction and carry
+                    // the sweep on rather than letting it stall.
+                    self.pending_pack_undo = None;
+                    self.advance_song_optimize_sweep();
+                }
                 // The build's status is still on the bar, reading as a finished
                 // export -- gzipped tracks and all. Say what actually happened.
                 SavePurpose::ExportZip => {
@@ -922,6 +952,14 @@ impl VgmStudioApp {
                     // One alert at the end for the whole batch, not eighteen.
                     log::warn!("split file could not be written: {message}");
                     self.split_file_saved(false);
+                }
+                SavePurpose::SongOptimized => {
+                    // The write failed; drop its transaction, tell the user, and
+                    // let the sweep move on rather than stall on this track.
+                    self.pending_pack_undo = None;
+                    self.alerts
+                        .push_back(Alert::new(crate::strings::APP_ERR_SAVE_FILE_TITLE, message));
+                    self.advance_song_optimize_sweep();
                 }
                 other => {
                     if other == SavePurpose::PackDoc {

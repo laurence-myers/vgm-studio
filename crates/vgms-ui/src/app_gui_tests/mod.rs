@@ -25,9 +25,10 @@ use crate::action::{
     Action, AppTab, EditAction, FileAction, LoopAction, MixerAction, PackAction, PlaybackAction,
     UiAction,
 };
-use crate::pack::PackSection;
+use crate::pack::{PackSection, TrackOptimizeStatus};
 use crate::platform::{
     OptimizedImage, PackJobOutcome, PickedFile, PickedFolder, SaveOutcome, SaveRequest,
+    SongOptimizeOutcome, SongOptimizeResult,
 };
 use crate::tasks::TaskKind;
 use crate::test_song::{

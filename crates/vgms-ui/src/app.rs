@@ -28,10 +28,11 @@ use crate::dialogs::{
 use crate::editor::{Editor, LoadFailure, LoadReport};
 use crate::markers::RangeMarkers;
 use crate::menus::{self, MenuState};
-use crate::pack::{BulkTagOverlay, PackMutation, PackState, PackTransaction};
+use crate::pack::{BulkTagOverlay, PackMutation, PackState, PackTransaction, TrackOptimizeStatus};
 use crate::platform::{
     AudioService, FileService, OptimizedImage, PackJobOutcome, PackService, PickedFile,
-    PickedFolder, SaveOutcome, SaveRequest,
+    PickedFolder, SaveOutcome, SaveRequest, SongOptimizeOutcome, SongOptimizeRequest,
+    SongOptimizeResult,
 };
 use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService};
 use crate::theme::{self, Palette};
@@ -148,6 +149,10 @@ enum SavePurpose {
     /// A screenshot rewritten in place -- a recompress, or a replace. Both hold
     /// the old bytes, so both land a reversible transaction.
     ImageWritten,
+    /// A song rewritten in place by a verified per-track optimise. Like
+    /// [`Self::TrackRewrite`] (commit the undo, rescan), but it also advances an
+    /// "Optimize All" sweep to the next track once this one has landed.
+    SongOptimized,
     /// The exported release zip (a Save-As dialog).
     ExportZip,
     /// Save Pack: re-exporting a memory-backed (zip) pack. On success the pack's
@@ -340,6 +345,14 @@ pub struct VgmStudioApp {
     /// How far the pack volume scan has got (`done`, `total`), shown in the
     /// status bar while it runs and cleared when it finishes or is cancelled.
     pack_scan_progress: Option<(usize, usize)>,
+    /// The tracks still to optimise in an "Optimize All" sweep, by file name --
+    /// the queue driving one verified per-track optimise after another, empty
+    /// for a single-track optimise. Names, not indices, so a rescan between two
+    /// of them cannot point the sweep at the wrong track.
+    pending_song_optimize: VecDeque<String>,
+    /// How far a per-track optimise (single or sweep) has got (`done`, `total`),
+    /// shown in the status bar while it runs, cleared when it finishes.
+    song_optimize_progress: Option<(usize, usize)>,
     /// Whether the selected chip's control panel is unfolded below the chip
     /// strip. Folded by default; the strip (lamps, trims, tabs) always shows,
     /// and folding hides only the controls: mutes, pans and trims keep

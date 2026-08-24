@@ -17,7 +17,8 @@ use vgms_synth::{AudioSource, Muting, Panning};
 
 use crate::platform::{
     ArchiveBackend, AudioService, FileService, OptimizedImage, PackJobOutcome, PackJobRequest,
-    PackService, PickedFile, PickedFolder, SaveOutcome, SaveRequest,
+    PackService, PickedFile, PickedFolder, SaveOutcome, SaveRequest, SongOptimizeRequest,
+    SongOptimizeResult,
 };
 use crate::tasks::{TaskKind, TaskRequest, TaskResult, TaskService, run_task};
 
@@ -483,6 +484,10 @@ pub(crate) struct PackLog {
     pub optimize_requests: Vec<(String, usize)>,
     /// Fed to `poll_optimized`, front first.
     pub optimized_outcomes: VecDeque<Result<OptimizedImage, String>>,
+    /// Per-track song optimisations requested (the whole request).
+    pub song_optimize_requests: Vec<SongOptimizeRequest>,
+    /// Fed to `poll_optimized_song`, front first.
+    pub song_optimized_outcomes: VecDeque<SongOptimizeResult>,
     pub busy: bool,
     /// A fixed date, so prefilled history lines and snapshots are deterministic.
     pub today: Option<(i32, u8, u8)>,
@@ -495,6 +500,8 @@ impl Default for PackLog {
             outcomes: VecDeque::new(),
             optimize_requests: Vec::new(),
             optimized_outcomes: VecDeque::new(),
+            song_optimize_requests: Vec::new(),
+            song_optimized_outcomes: VecDeque::new(),
             busy: false,
             today: Some((2026, 7, 16)),
         }
@@ -528,6 +535,14 @@ impl PackService for FakePackService {
 
     fn poll_optimized(&mut self) -> Option<Result<OptimizedImage, String>> {
         self.0.borrow_mut().optimized_outcomes.pop_front()
+    }
+
+    fn optimize_song(&mut self, request: SongOptimizeRequest) {
+        self.0.borrow_mut().song_optimize_requests.push(request);
+    }
+
+    fn poll_optimized_song(&mut self) -> Option<SongOptimizeResult> {
+        self.0.borrow_mut().song_optimized_outcomes.pop_front()
     }
 
     fn today(&self) -> Option<(i32, u8, u8)> {

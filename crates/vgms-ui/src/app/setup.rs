@@ -48,6 +48,8 @@ impl VgmStudioApp {
             channels: ChipPanels::new(),
             status_shown: String::new(),
             pack_scan_progress: None,
+            pending_song_optimize: VecDeque::new(),
+            song_optimize_progress: None,
             chips_expanded: false,
             scroll_to: None,
             last_first_selected: None,
