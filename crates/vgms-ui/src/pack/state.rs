@@ -1023,6 +1023,10 @@ impl PackState {
             // in from `config.optimizer` before the request is submitted. `Auto`
             // is the safe default for any caller that does not (the tests).
             optimizer: vgms_core::config::OptimizerChoice::Auto,
+            // Likewise the two tool-stage switches, filled from config before
+            // submit; the pipeline's own defaults (both on) are the fallback.
+            sample_roms: true,
+            dac_runs: true,
         }
     }
 }

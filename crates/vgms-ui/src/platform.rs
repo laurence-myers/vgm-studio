@@ -551,6 +551,10 @@ pub struct PackJobRequest {
     /// Which optimiser to run when `optimize_vgms`: the built-in pass, the
     /// external tools, or the routing between them (the Settings choice).
     pub optimizer: vgms_core::config::OptimizerChoice,
+    /// Run `vgm_sro` (trim unused sample-ROM regions) when the tools run.
+    pub sample_roms: bool,
+    /// Run `optdac` (collapse identical DAC-write runs) when the tools run.
+    pub dac_runs: bool,
 }
 
 /// What became of a [`PackJobRequest`].

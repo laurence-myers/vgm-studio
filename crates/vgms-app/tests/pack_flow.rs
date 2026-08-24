@@ -52,6 +52,8 @@ fn scan_build_and_reopen_a_release_zip() {
         request.gzip_vgms,
         request.optimize_vgms,
         request.optimizer,
+        request.sample_roms,
+        request.dac_runs,
         &|| false,
     )
     .unwrap()

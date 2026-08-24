@@ -12,9 +12,11 @@ use vgms_pack_archive::{ImageOptimizer, PackEntry, SongOptimizer};
 pub use vgms_pack_archive::PackZipOutput;
 
 /// The desktop song pass: the full vgmtools pipeline over child processes,
-/// routed by the Settings optimiser choice.
+/// routed by the Settings optimiser choice and tool-stage switches.
 struct NativeSongOptimizer {
     optimizer: vgms_core::config::OptimizerChoice,
+    sample_roms: bool,
+    dac_runs: bool,
 }
 
 impl SongOptimizer for NativeSongOptimizer {
@@ -28,7 +30,8 @@ impl SongOptimizer for NativeSongOptimizer {
             bytes,
             vgms_vgmtools::Options {
                 optimizer: self.optimizer,
-                ..Default::default()
+                sample_roms: self.sample_roms,
+                dac_runs: self.dac_runs,
             },
             &vgms_vgmtools::NativeTools,
             log,
@@ -70,9 +73,15 @@ pub fn build_pack_zip(
     gzip_vgms: bool,
     optimize_vgms: bool,
     optimizer: vgms_core::config::OptimizerChoice,
+    sample_roms: bool,
+    dac_runs: bool,
     is_cancelled: &dyn Fn() -> bool,
 ) -> anyhow::Result<Option<PackZipOutput>> {
-    let native_song = NativeSongOptimizer { optimizer };
+    let native_song = NativeSongOptimizer {
+        optimizer,
+        sample_roms,
+        dac_runs,
+    };
     let song: Option<&dyn SongOptimizer> = optimize_vgms.then_some(&native_song);
     vgms_pack_archive::build_pack_zip(
         entries,
@@ -163,6 +172,8 @@ mod tests {
             false,
             true,
             vgms_core::config::OptimizerChoice::Auto,
+            true,
+            true,
             &never(),
         )
         .unwrap()
@@ -188,6 +199,8 @@ mod tests {
             false,
             true,
             vgms_core::config::OptimizerChoice::Auto,
+            true,
+            true,
             &never(),
         )
         .unwrap()
@@ -213,6 +226,8 @@ mod tests {
             false,
             true,
             vgms_core::config::OptimizerChoice::Auto,
+            true,
+            true,
             &never(),
         )
         .unwrap()
@@ -245,6 +260,8 @@ mod tests {
             false,
             true,
             vgms_core::config::OptimizerChoice::Auto,
+            true,
+            true,
             &never(),
         )
         .unwrap()
@@ -278,6 +295,8 @@ mod tests {
             true,
             false,
             vgms_core::config::OptimizerChoice::Auto,
+            true,
+            true,
             &never(),
         )
         .unwrap()
@@ -308,6 +327,8 @@ mod tests {
             true,
             false,
             vgms_core::config::OptimizerChoice::Auto,
+            true,
+            true,
             &never(),
         )
         .unwrap()
@@ -337,6 +358,8 @@ mod tests {
             true,
             false,
             vgms_core::config::OptimizerChoice::Auto,
+            true,
+            true,
             &never(),
         )
         .unwrap()

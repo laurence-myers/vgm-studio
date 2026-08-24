@@ -595,6 +595,12 @@ pub(crate) const SETTINGS_OPTIMIZER_HOVER: &str = "Which optimiser shrinks a VGM
      Automatic uses the built-in pass where it covers every chip and the \
      external vgmtools otherwise; the other choices always use the named \
      optimiser.";
+pub(crate) const SETTINGS_TOOL_STAGES_HOVER: &str = "Extra stages the external tools run. They apply only when the tools run, so \
+     they are greyed for the built-in optimiser.";
+pub(crate) const SETTINGS_SAMPLE_ROMS_HOVER: &str =
+    "Run vgm_sro to strip unused regions from sample ROMs.";
+pub(crate) const SETTINGS_DAC_RUNS_HOVER: &str =
+    "Run optdac to collapse long runs of identical DAC writes.";
 pub(crate) const SETTINGS_FREQUENCY_HOVER: &str = "49716 Hz is the OPL3's native rate";
 pub(crate) const SETTINGS_BUFFER_SIZE_HOVER: &str = "Frames per audio callback. Smaller seeks and mutes sooner; larger \
      avoids dropouts.";

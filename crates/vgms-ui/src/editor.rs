@@ -649,6 +649,8 @@ impl Editor {
     fn optimize_vgm_document(
         &mut self,
         optimizer: vgms_core::config::OptimizerChoice,
+        sample_roms: bool,
+        dac_runs: bool,
     ) -> OptimizeVgmOutcome {
         let Some(file) = self.vgm.as_mut() else {
             return OptimizeVgmOutcome::NothingToDo;
@@ -659,13 +661,14 @@ impl Editor {
         let Ok(plain) = vgms_core::vgm::file::write(file) else {
             return OptimizeVgmOutcome::NothingToDo;
         };
-        let accepted = match crate::optimize::optimized_editor(&plain, optimizer) {
-            crate::optimize::EditorOptimize::Accepted(bytes) => bytes,
-            crate::optimize::EditorOptimize::Nothing => return OptimizeVgmOutcome::NothingToDo,
-            crate::optimize::EditorOptimize::Kept(reason) => {
-                return OptimizeVgmOutcome::KeptOriginal(reason);
-            }
-        };
+        let accepted =
+            match crate::optimize::optimized_editor(&plain, optimizer, sample_roms, dac_runs) {
+                crate::optimize::EditorOptimize::Accepted(bytes) => bytes,
+                crate::optimize::EditorOptimize::Nothing => return OptimizeVgmOutcome::NothingToDo,
+                crate::optimize::EditorOptimize::Kept(reason) => {
+                    return OptimizeVgmOutcome::KeptOriginal(reason);
+                }
+            };
         let Ok(mut edited) = vgms_core::vgm::file::read(&file.name, &accepted) else {
             return OptimizeVgmOutcome::NothingToDo;
         };
@@ -720,8 +723,10 @@ impl Editor {
     pub fn optimize_vgm(
         &mut self,
         optimizer: vgms_core::config::OptimizerChoice,
+        sample_roms: bool,
+        dac_runs: bool,
     ) -> OptimizeVgmOutcome {
-        self.optimize_vgm_document(optimizer)
+        self.optimize_vgm_document(optimizer, sample_roms, dac_runs)
     }
 
     /// Crops the song to the marked region, deleting everything outside it.

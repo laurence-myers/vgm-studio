@@ -180,7 +180,11 @@ impl VgmStudioApp {
             self.status = crate::strings::APP_STATUS_ONLY_VGM_OPTIMIZE.to_owned();
             return;
         }
-        match self.editor.optimize_vgm(self.config.optimizer) {
+        match self.editor.optimize_vgm(
+            self.config.optimizer,
+            self.config.optimize_sample_roms,
+            self.config.optimize_dac_runs,
+        ) {
             OptimizeVgmOutcome::Optimized { removed, saved } => {
                 self.status = crate::strings::app_status_optimized(removed, saved);
                 self.scroll_to = Some(table::ScrollTo::centered(0));

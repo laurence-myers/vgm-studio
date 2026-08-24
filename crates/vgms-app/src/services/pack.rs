@@ -96,6 +96,8 @@ impl NativePackService {
                 request.gzip_vgms,
                 request.optimize_vgms,
                 request.optimizer,
+                request.sample_roms,
+                request.dac_runs,
                 &is_cancelled,
             ) {
                 Ok(Some(output)) => Some(PackJobOutcome::Done {
@@ -229,6 +231,8 @@ mod tests {
             gzip_vgms: false,
             optimize_vgms: false,
             optimizer: vgms_core::config::OptimizerChoice::Auto,
+            sample_roms: true,
+            dac_runs: true,
         }
     }
 

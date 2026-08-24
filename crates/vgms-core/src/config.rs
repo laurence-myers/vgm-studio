@@ -455,12 +455,31 @@ impl Default for UiConfig {
 }
 
 /// Not `Copy`: [`AudioConfig::retrowave_port`] is an owned port name.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppConfig {
     pub audio: AudioConfig,
     pub ui: UiConfig,
     /// Which optimiser pack export and Edit > Optimize use. `[optimize]`.
     pub optimizer: OptimizerChoice,
+    /// Run `vgm_sro` (trim unused sample-ROM regions) when the external tools
+    /// run. On by default; `sample_roms=` in `[optimize]`.
+    pub optimize_sample_roms: bool,
+    /// Run `optdac` (collapse long runs of identical DAC writes) when the
+    /// external tools run. On by default; `dac_runs=` in `[optimize]`.
+    pub optimize_dac_runs: bool,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            audio: AudioConfig::default(),
+            ui: UiConfig::default(),
+            optimizer: OptimizerChoice::default(),
+            // The pipeline's own defaults: both stages run.
+            optimize_sample_roms: true,
+            optimize_dac_runs: true,
+        }
+    }
 }
 
 impl AppConfig {
@@ -616,6 +635,12 @@ impl AppConfig {
         if let Some(value) = lookup(&ini, "optimize", "optimizer") {
             self.optimizer = parse(value, "optimize.optimizer")?;
         }
+        if let Some(value) = lookup(&ini, "optimize", "sample_roms") {
+            self.optimize_sample_roms = parse_bool(value, "optimize.sample_roms")?;
+        }
+        if let Some(value) = lookup(&ini, "optimize", "dac_runs") {
+            self.optimize_dac_runs = parse_bool(value, "optimize.dac_runs")?;
+        }
         Ok(())
     }
 
@@ -682,7 +707,12 @@ impl AppConfig {
              # Optimize: \"auto\" (built-in where it covers every chip, the\n\
              # vgmtools as a fallback -- the default), \"built-in\" (built-in\n\
              # only, no external tools), or \"tools\" (the vgmtools always).\n\
-             optimizer={optimizer}\n",
+             optimizer={optimizer}\n\
+             # When the external tools run, also trim unused sample-ROM regions\n\
+             # (vgm_sro) and collapse long runs of identical DAC writes (optdac).\n\
+             # Both on by default.\n\
+             sample_roms={sample_roms}\n\
+             dac_runs={dac_runs}\n",
             frequency = self.audio.frequency,
             bit_depth = self.audio.bit_depth,
             buffer_size = self.audio.buffer_size,
@@ -709,6 +739,8 @@ impl AppConfig {
             theme = self.ui.theme,
             pad_style = self.ui.pad_style,
             optimizer = self.optimizer,
+            sample_roms = self.optimize_sample_roms,
+            dac_runs = self.optimize_dac_runs,
         )
     }
 }
@@ -1073,6 +1105,21 @@ mod tests {
     }
 
     #[test]
+    fn the_optimize_stage_switches_default_on_and_read_from_the_ini() {
+        // Both on by default, so an unoptimised pack behaves as it always did.
+        let defaults = AppConfig::default();
+        assert!(defaults.optimize_sample_roms);
+        assert!(defaults.optimize_dac_runs);
+
+        let config = AppConfig::from_ini_sources(&[
+            "[optimize]\noptimizer=tools\nsample_roms=off\ndac_runs=no\n",
+        ]);
+        assert_eq!(config.optimizer, OptimizerChoice::Tools);
+        assert!(!config.optimize_sample_roms);
+        assert!(!config.optimize_dac_runs);
+    }
+
+    #[test]
     fn a_retired_key_is_ignored_rather_than_rejected() {
         // `chip_write_delay` is a retired key; an ini written before it was
         // dropped still carries it, and must still load rather than fall back to
@@ -1112,6 +1159,9 @@ mod tests {
             },
             // Non-default, so the round-trip carries it.
             optimizer: OptimizerChoice::Tools,
+            // Non-default, so the round-trip actually exercises them.
+            optimize_sample_roms: false,
+            optimize_dac_runs: false,
         };
         let rendered = config.to_ini_string();
         assert_eq!(AppConfig::from_ini_sources(&[&rendered]), config);

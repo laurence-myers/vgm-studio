@@ -73,6 +73,10 @@ pub struct SettingsDialog {
     previewed_cores: BTreeMap<String, String>,
     /// Which optimiser compresses a VGM on pack export and Edit > Optimize.
     optimizer: OptimizerChoice,
+    /// Whether the external tools also trim sample ROMs (`vgm_sro`).
+    optimize_sample_roms: bool,
+    /// Whether the external tools also collapse DAC runs (`optdac`).
+    optimize_dac_runs: bool,
     /// How non-OPL chips reach the output rate: the `sinc`/`linear` slug,
     /// kept as the config spells it.
     resampling: String,
@@ -117,6 +121,8 @@ impl SettingsDialog {
             cores: config.audio.cores.clone(),
             previewed_cores: config.audio.cores.clone(),
             optimizer: config.optimizer,
+            optimize_sample_roms: config.optimize_sample_roms,
+            optimize_dac_runs: config.optimize_dac_runs,
             resampling: config.audio.resampling.clone(),
             previewed_resampling: config.audio.resampling.clone(),
             retrowave_port: config.audio.retrowave_port.clone().unwrap_or_default(),
@@ -478,6 +484,22 @@ impl SettingsDialog {
                         });
                 });
                 ui.end_row();
+
+                // The two extra tool stages. They only bite when the external
+                // tools run, so they are greyed when the built-in optimiser is
+                // the only thing that runs.
+                let tools_run = self.optimizer != OptimizerChoice::BuiltInOnly;
+                ui.label("Tool stages")
+                    .on_hover_text(crate::strings::SETTINGS_TOOL_STAGES_HOVER);
+                ui.add_enabled_ui(tools_run, |ui| {
+                    ui.vertical(|ui| {
+                        ui.checkbox(&mut self.optimize_sample_roms, "Trim sample ROMs (vgm_sro)")
+                            .on_hover_text(crate::strings::SETTINGS_SAMPLE_ROMS_HOVER);
+                        ui.checkbox(&mut self.optimize_dac_runs, "Collapse DAC runs (optdac)")
+                            .on_hover_text(crate::strings::SETTINGS_DAC_RUNS_HOVER);
+                    });
+                });
+                ui.end_row();
             });
     }
 
@@ -671,6 +693,8 @@ impl SettingsDialog {
         config.audio.cores = self.cores.clone();
         config.audio.resampling = self.resampling.clone();
         config.optimizer = self.optimizer;
+        config.optimize_sample_roms = self.optimize_sample_roms;
+        config.optimize_dac_runs = self.optimize_dac_runs;
         let port = self.retrowave_port.trim();
         config.audio.retrowave_port = (!port.is_empty()).then(|| port.to_owned());
         config.audio.machine_speed = self.machine_speed;

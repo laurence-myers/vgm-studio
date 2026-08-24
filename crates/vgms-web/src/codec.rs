@@ -855,6 +855,8 @@ pub fn encode_pack_job(request: &PackJobRequest) -> Vec<u8> {
         OptimizerChoice::BuiltInOnly => 1,
         OptimizerChoice::Tools => 2,
     });
+    writer.bool(request.sample_roms);
+    writer.bool(request.dac_runs);
     writer.out
 }
 
@@ -883,12 +885,16 @@ pub fn decode_pack_job(input: &[u8]) -> Result<PackJobRequest> {
         2 => OptimizerChoice::Tools,
         other => return Err(CodecError::Tag("pack optimizer", other)),
     };
+    let sample_roms = reader.bool("pack.sample_roms")?;
+    let dac_runs = reader.bool("pack.dac_runs")?;
     Ok(PackJobRequest {
         zip_name,
         entries,
         gzip_vgms,
         optimize_vgms,
         optimizer,
+        sample_roms,
+        dac_runs,
     })
 }
 
@@ -1304,12 +1310,17 @@ mod tests {
             // A non-default value, so a dropped field would fail the round trip
             // (Auto is 0, which would survive even an unwritten byte).
             optimizer: OptimizerChoice::BuiltInOnly,
+            // Non-default (both default true), so a dropped bool is caught.
+            sample_roms: false,
+            dac_runs: false,
         };
         let decoded = decode_pack_job(&encode_pack_job(&request)).expect("round trips");
         assert_eq!(decoded.zip_name, request.zip_name);
         assert_eq!(decoded.gzip_vgms, request.gzip_vgms);
         assert_eq!(decoded.optimize_vgms, request.optimize_vgms);
         assert_eq!(decoded.optimizer, request.optimizer);
+        assert_eq!(decoded.sample_roms, request.sample_roms);
+        assert_eq!(decoded.dac_runs, request.dac_runs);
         assert_eq!(decoded.entries.len(), 3);
         assert_eq!(decoded.entries[0].name, "01 Intro.vgm");
         assert!(matches!(decoded.entries[0].kind, PackEntryKind::Song));

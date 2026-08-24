@@ -58,10 +58,13 @@ pub enum EditorOptimize {
 pub(crate) fn optimized_editor(
     bytes: &[u8],
     optimizer: vgms_core::config::OptimizerChoice,
+    sample_roms: bool,
+    dac_runs: bool,
 ) -> EditorOptimize {
     let options = vgms_vgmtools::Options {
         optimizer,
-        ..Default::default()
+        sample_roms,
+        dac_runs,
     };
     let verified = optimize_verified(
         bytes,
@@ -84,6 +87,8 @@ pub(crate) fn optimized_editor(
 pub(crate) fn optimized_editor(
     bytes: &[u8],
     _optimizer: vgms_core::config::OptimizerChoice,
+    _sample_roms: bool,
+    _dac_runs: bool,
 ) -> EditorOptimize {
     let optimized = vgms_core::vgm::file::read("optimizing.vgm", bytes)
         .ok()

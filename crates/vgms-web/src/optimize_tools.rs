@@ -127,13 +127,25 @@ fn describe(error: &JsValue) -> String {
 pub struct WebPipelineOptimizer {
     tools: WebTools,
     optimizer: vgms_core::config::OptimizerChoice,
+    sample_roms: bool,
+    dac_runs: bool,
 }
 
 impl WebPipelineOptimizer {
     /// Builds the optimiser from the three tool modules, routed by the Settings
-    /// optimiser choice.
-    pub fn new(tools: WebTools, optimizer: vgms_core::config::OptimizerChoice) -> Self {
-        Self { tools, optimizer }
+    /// optimiser choice and tool-stage switches.
+    pub fn new(
+        tools: WebTools,
+        optimizer: vgms_core::config::OptimizerChoice,
+        sample_roms: bool,
+        dac_runs: bool,
+    ) -> Self {
+        Self {
+            tools,
+            optimizer,
+            sample_roms,
+            dac_runs,
+        }
     }
 }
 
@@ -146,7 +158,8 @@ impl SongOptimizer for WebPipelineOptimizer {
             bytes,
             Options {
                 optimizer: self.optimizer,
-                ..Default::default()
+                sample_roms: self.sample_roms,
+                dac_runs: self.dac_runs,
             },
             &self.tools,
             log,

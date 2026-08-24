@@ -376,6 +376,8 @@ impl VgmStudioApp {
         let validations = pack.validations();
         let mut request = pack.export_request();
         request.optimizer = self.config.optimizer;
+        request.sample_roms = self.config.optimize_sample_roms;
+        request.dac_runs = self.config.optimize_dac_runs;
         // The `pack` borrow ends here (validations and request are owned).
         if !validations.errors.is_empty() {
             self.alerts
@@ -431,6 +433,8 @@ impl VgmStudioApp {
         }
         let mut request = pack.export_request();
         request.optimizer = self.config.optimizer;
+        request.sample_roms = self.config.optimize_sample_roms;
+        request.dac_runs = self.config.optimize_dac_runs;
         // Save back under the pack's own name, not the game-name-derived one.
         request.zip_name = format!("{}.zip", pack.folder_name);
         self.pack_saving_archive = true;
@@ -1052,10 +1056,8 @@ impl VgmStudioApp {
         Some(SongOptimizeRequest {
             name: track.file_name.clone(),
             bytes: track.bytes.clone(),
-            // The ROM/DAC switches follow the Settings optimiser choice; until
-            // Stage 3 surfaces them they take the pipeline's own defaults.
-            sample_roms: true,
-            dac_runs: true,
+            sample_roms: self.config.optimize_sample_roms,
+            dac_runs: self.config.optimize_dac_runs,
             optimizer: self.config.optimizer,
             output_rate: self.config.audio.frequency,
         })
