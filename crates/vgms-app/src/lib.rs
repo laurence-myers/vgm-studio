@@ -12,6 +12,10 @@ use vgms_core::{ChipKind, DroSong, VgmFile};
 pub mod cli;
 pub mod config;
 pub mod corpus;
+/// Windows media-transport-key integration (SMTC). Windows-only; the web build
+/// drives the shared media-key sink through `navigator.mediaSession`.
+#[cfg(windows)]
+pub mod media;
 pub mod pack_zip;
 pub mod parity;
 pub mod services;

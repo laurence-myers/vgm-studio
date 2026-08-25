@@ -43,6 +43,12 @@ zip.workspace = true
 # the subcommands' output is visible when vgmstudio is run from a terminal.
 [target.'cfg(windows)'.dependencies]
 windows-sys.workspace = true
+# System Media Transport Controls: receive OS media-transport keys (Play/Pause/
+# Stop) even while unfocused, and publish the playback status the OS needs to
+# route them. Windows-only for now; the web build uses navigator.mediaSession.
+souvlaki = "0.8"
+# To pull the window's HWND out of eframe's CreationContext for souvlaki.
+raw-window-handle = "0.6"
 
 # Windows-only: compiles src/dt.ico into the executable's resource table (see
 # build.rs) so Explorer shows the app icon. Never pulled on other targets.

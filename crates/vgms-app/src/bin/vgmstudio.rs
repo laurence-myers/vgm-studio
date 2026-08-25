@@ -127,14 +127,28 @@ fn run_gui(file: Option<std::path::PathBuf>) -> eframe::Result {
                 let ctx = cc.egui_ctx.clone();
                 move || ctx.request_repaint()
             };
-            Ok(Box::new(VgmStudioApp::new(
+            let app = VgmStudioApp::new(
                 Box::new(files),
                 Box::new(SwitchingAudioService::new()),
                 Box::new(ThreadTaskService::with_notifier(repaint_tasks)),
                 Box::new(NativePackService::with_notifier(repaint_pack)),
                 Box::new(IniConfigStore::new()),
                 None,
-            )))
+            );
+            // Attach the OS media session so media-transport keys drive the app
+            // even when it is unfocused. Windows-only for now; if the session
+            // cannot be created the app runs on without media keys.
+            #[cfg(windows)]
+            let app: Box<dyn eframe::App> = {
+                let repaint_media = {
+                    let ctx = cc.egui_ctx.clone();
+                    move || ctx.request_repaint()
+                };
+                vgms_app::media::MediaKeyApp::attach(app, cc, repaint_media)
+            };
+            #[cfg(not(windows))]
+            let app: Box<dyn eframe::App> = Box::new(app);
+            Ok(app)
         }),
     )
 }
