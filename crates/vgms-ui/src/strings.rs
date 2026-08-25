@@ -157,6 +157,24 @@ pub(crate) const APP_AUDIT_HEADER_INTRO: &str =
     "This file's header disagrees with its own music:\n\n";
 pub(crate) const APP_AUDIT_HEADER_OUTRO: &str = "\nCorrect them to the stream's values?";
 
+/// The OS window title: the open file (with a `*` while it has unsaved changes)
+/// ahead of the app name, or the app name and tagline when nothing is open.
+pub(crate) fn app_window_title(name: Option<&str>, dirty: bool) -> String {
+    match name {
+        Some(name) => {
+            let marker = if dirty { " *" } else { "" };
+            format!("{name}{marker} \u{2014} VGM Studio")
+        }
+        // Matches the startup title in bin/vgmstudio.rs so the empty state does
+        // not flash a different string on the first frame. The workspace version
+        // is shared, so this crate's CARGO_PKG_VERSION is the app's.
+        None => format!(
+            "VGM Studio v{} \u{2014} Vintage Groove Mangler",
+            env!("CARGO_PKG_VERSION")
+        ),
+    }
+}
+
 pub(crate) fn app_about_text(
     version: impl std::fmt::Display,
     credits: impl std::fmt::Display,
@@ -990,5 +1008,27 @@ pub(crate) fn position_panel_loop_progress(iteration: u32, count: LoopCount) -> 
     match count {
         LoopCount::Infinite => format!("Loop {}", iteration + 1),
         LoopCount::Times(times) => format!("Loop {} / {}", iteration + 1, times.max(1)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_title_names_the_open_file_and_marks_dirty() {
+        assert_eq!(
+            app_window_title(Some("song.vgm"), false),
+            "song.vgm \u{2014} VGM Studio"
+        );
+        assert_eq!(
+            app_window_title(Some("song.vgm"), true),
+            "song.vgm * \u{2014} VGM Studio",
+            "an unsaved change is marked with a star"
+        );
+        // Nothing open: the app name and tagline, carrying the version.
+        let empty = app_window_title(None, false);
+        assert!(empty.starts_with("VGM Studio v"), "{empty}");
+        assert!(empty.ends_with("Vintage Groove Mangler"), "{empty}");
     }
 }

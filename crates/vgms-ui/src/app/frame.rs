@@ -11,6 +11,7 @@ impl VgmStudioApp {
         }
         self.poll_services();
         self.handle_drops(&ctx);
+        self.sync_window_title(&ctx);
 
         let mut actions: Vec<Action> = Vec::new();
         // Actions injected by the e2e hook run first, through the same handler the
@@ -1291,6 +1292,25 @@ impl VgmStudioApp {
         if let Some(ms) = timeline.ms_offset_at(index) {
             self.waveform.start_ms = ms;
             self.position.set_position_ms(ms);
+        }
+    }
+
+    /// Names the open file in the OS window title (with a `*` while it has
+    /// unsaved changes), or the app name when nothing is open. Only re-sends the
+    /// command when the title changes, so a paused event loop is not churned.
+    fn sync_window_title(&mut self, ctx: &egui::Context) {
+        let title = match (self.active_tab, self.pack.as_ref()) {
+            (AppTab::Pack, Some(pack)) => {
+                crate::strings::app_window_title(Some(&pack.folder_name), pack.dirty)
+            }
+            _ => crate::strings::app_window_title(
+                self.editor.document_name(),
+                self.editor.is_dirty(),
+            ),
+        };
+        if title != self.window_title {
+            self.window_title = title.clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
         }
     }
 

@@ -386,6 +386,10 @@ pub struct VgmStudioApp {
     /// transport deck draws the "Loop N/M" indicator from it, and the position
     /// panel reads its presence to hide the sample counter.
     loop_progress: Option<(u32, LoopCount)>,
+    /// The OS window title as of the last frame, so the title command is only
+    /// re-sent when the open file (or its dirty state) actually changes rather
+    /// than every frame.
+    window_title: String,
     /// Whether the previous frame was playing, so the frame after playback
     /// ends can display the exact final position.
     was_playing: bool,
