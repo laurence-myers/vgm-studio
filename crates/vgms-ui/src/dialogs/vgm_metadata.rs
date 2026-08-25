@@ -14,6 +14,25 @@ use crate::theme::{Palette, bevel};
 /// whatever ends up typed or pasted into them.
 const FIELD_WIDTH: f32 = 160.0;
 
+/// Formats a loop-point instruction index for its field: hex with the `0x`
+/// prefix, matching the editor's "Pos." column (`{:#06X}`), so a value looked up
+/// in the table reads the same as it is typed here.
+fn format_pos(index: usize) -> String {
+    format!("{index:#06X}")
+}
+
+/// Parses a loop-point field as hex, tolerating an optional `0x`/`0X` prefix and
+/// surrounding whitespace. `None` if it is not a hex number (the caller decides
+/// whether an empty field means "no loop" / "end of song" before calling).
+fn parse_pos(text: &str) -> Option<usize> {
+    let trimmed = text.trim();
+    let digits = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+        .unwrap_or(trimmed);
+    usize::from_str_radix(digits, 16).ok()
+}
+
 #[derive(Debug)]
 pub struct VgmMetadataDialog {
     loop_point: String,
@@ -67,8 +86,8 @@ impl VgmMetadataDialog {
         samples_prefix: Vec<u32>,
     ) -> Self {
         Self {
-            loop_point: loop_point.map_or_else(String::new, |i| i.to_string()),
-            loop_end: loop_end.map_or_else(String::new, |i| i.to_string()),
+            loop_point: loop_point.map_or_else(String::new, format_pos),
+            loop_end: loop_end.map_or_else(String::new, format_pos),
             loop_base: loop_base.to_string(),
             loop_modifier: loop_modifier.to_string(),
             volume_modifier: volume_modifier.to_string(),
@@ -124,7 +143,7 @@ impl VgmMetadataDialog {
                     .num_columns(2)
                     .spacing([10.0, 6.0])
                     .show(ui, |ui| {
-                        ui.label("Loop start (instruction):");
+                        ui.label("Loop start (Pos., hex):");
                         ui.add(
                             super::wrapping_edit(&mut self.loop_point, palette, FIELD_WIDTH, 1)
                                 .return_key(None)
@@ -132,7 +151,7 @@ impl VgmMetadataDialog {
                         );
                         ui.end_row();
 
-                        ui.label("Loop end (instruction):");
+                        ui.label("Loop end (Pos., hex):");
                         ui.add(
                             super::wrapping_edit(&mut self.loop_end, palette, FIELD_WIDTH, 1)
                                 .return_key(None)
@@ -187,8 +206,8 @@ impl VgmMetadataDialog {
         let loop_point = if trimmed.is_empty() {
             None
         } else {
-            match trimmed.parse::<usize>() {
-                Ok(index) if index < self.song_len => Some(index),
+            match parse_pos(trimmed) {
+                Some(index) if index < self.song_len => Some(index),
                 _ => {
                     actions.push(Action::Ui(UiAction::Alert {
                         title: crate::strings::VGM_METADATA_INVALID_TITLE.to_owned(),
@@ -257,7 +276,7 @@ impl VgmMetadataDialog {
         if trimmed.is_empty() {
             return "(no loop)".to_owned();
         }
-        let Ok(start) = trimmed.parse::<usize>() else {
+        let Some(start) = parse_pos(trimmed) else {
             return "(invalid)".to_owned();
         };
         let Some(end) = self.parsed_end() else {
@@ -279,10 +298,7 @@ impl VgmMetadataDialog {
         if trimmed.is_empty() {
             return Some(self.song_len);
         }
-        trimmed
-            .parse::<usize>()
-            .ok()
-            .filter(|&end| end <= self.song_len)
+        parse_pos(trimmed).filter(|&end| end <= self.song_len)
     }
 }
 
@@ -303,6 +319,35 @@ mod tests {
             song_len: 4,
             samples_prefix: vec![0, 10, 30, 60, 100],
         }
+    }
+
+    #[test]
+    fn loop_points_parse_as_hex_with_an_optional_prefix() {
+        assert_eq!(parse_pos("0x1A"), Some(0x1A));
+        assert_eq!(parse_pos("1a"), Some(0x1A));
+        assert_eq!(parse_pos("  0X0F  "), Some(0x0F));
+        assert_eq!(
+            parse_pos("10"),
+            Some(0x10),
+            "bare digits are hex, not decimal"
+        );
+        assert_eq!(parse_pos(""), None);
+        assert_eq!(parse_pos("zz"), None);
+    }
+
+    #[test]
+    fn loop_points_display_as_prefixed_hex() {
+        assert_eq!(format_pos(0), "0x0000");
+        assert_eq!(format_pos(0x1A), "0x001A");
+        assert_eq!(format_pos(0x1_2345), "0x12345");
+    }
+
+    #[test]
+    fn for_fields_seeds_the_loop_fields_in_hex() {
+        let dialog =
+            VgmMetadataDialog::from_fields(Some(0x2A), Some(0x30), 0, 0, 0, 0x40, vec![0; 0x41]);
+        assert_eq!(dialog.loop_point, "0x002A");
+        assert_eq!(dialog.loop_end, "0x0030");
     }
 
     #[test]

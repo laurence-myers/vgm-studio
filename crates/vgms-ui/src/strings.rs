@@ -743,11 +743,11 @@ pub(crate) const VGM_METADATA_UPDATE_ERROR: &str =
     "Error updating VGM metadata, check that the entered values are correct.";
 
 pub(crate) fn vgm_metadata_loop_start_message(song_len: usize) -> String {
-    format!("Loop start must be an instruction index below {song_len}.")
+    format!("Loop start must be a Pos. (hex instruction index) below {song_len:#06X}.")
 }
 pub(crate) fn vgm_metadata_loop_end_message(song_len: usize) -> String {
     format!(
-        "Loop end must be an instruction index of {song_len} or less, or empty for the end of the song."
+        "Loop end must be a Pos. (hex instruction index) of {song_len:#06X} or less, or empty for the end of the song."
     )
 }
 
