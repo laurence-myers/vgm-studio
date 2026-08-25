@@ -175,13 +175,15 @@ pub(crate) fn app_window_title(name: Option<&str>, dirty: bool) -> String {
     }
 }
 
+/// The About body: identity and the binary's licensing. The per-core credit
+/// table and the serialport note live in the separate Licenses dialog now (they
+/// are a table, not prose), reachable by a button in About.
 pub(crate) fn app_about_text(
     version: impl std::fmt::Display,
-    credits: impl std::fmt::Display,
     optimize_credit: impl std::fmt::Display,
 ) -> String {
     format!(
-        "VGM Studio v{}\n\
+        "VGM Studio v{version}\n\
          Vintage Groove Mangler\n\
          Laurence Dougal Myers\n\
          Web: http://www.jestarjokin.net/apps/drotrimmer\n\
@@ -197,14 +199,15 @@ pub(crate) fn app_about_text(
          separately available under MIT OR Apache-2.0; see licenses/\n\
          in the source distribution.\n\
          \n\
-         Emulator cores in this build:\n\
-         {}\
-         {}\n\
-         RetroWave OPL3 output links the serialport crate, used under\n\
-         the MPL-2.0. Its source: https://github.com/serialport/serialport-rs",
-        version, credits, optimize_credit,
+         {optimize_credit}\n\
+         \n\
+         See Licenses for the emulator cores compiled into this build."
     )
 }
+
+/// The dependency-license note shown at the foot of the Licenses dialog.
+pub(crate) const APP_LICENSES_NOTE: &str = "RetroWave OPL3 output links the serialport crate, used under the MPL-2.0. \
+     Its source: https://github.com/serialport/serialport-rs";
 
 pub(crate) fn app_target_write(name: &str, inst: &str) -> String {
     format!("a write to {name}{inst}")

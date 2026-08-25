@@ -3098,6 +3098,27 @@ fn snapshot_help_dialog() {
 }
 
 #[test]
+fn snapshot_about_dialog() {
+    // Wide like Help: the About box is a block of text read across, with a
+    // Licenses button to the per-core table.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 900.0));
+    let _ = &handles;
+    act(&mut harness, Action::Ui(UiAction::About));
+    harness.run();
+    settled_snapshot(&mut harness, "about_dialog");
+}
+
+#[test]
+fn snapshot_licenses_dialog() {
+    // The striped per-core license table the About dialog opens.
+    let (mut harness, handles) = build_sized(None, false, true, egui::vec2(1000.0, 1200.0));
+    let _ = &handles;
+    act(&mut harness, Action::Ui(UiAction::Licenses));
+    harness.run();
+    settled_snapshot(&mut harness, "licenses_dialog");
+}
+
+#[test]
 fn snapshot_bulk_tag_dialog() {
     // The app's own default window: eleven GD3 fields plus a track list is more
     // than 600pt tall, so this is the size at which the box used to run off the

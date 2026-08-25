@@ -692,9 +692,10 @@ impl VgmStudioApp {
     /// App-chrome actions: message boxes, the status bar, and the Help menu.
     fn handle_ui_action(&mut self, action: UiAction) {
         match action {
-            UiAction::About => self.alerts.push_back(Alert::new("About", about_text())),
+            UiAction::About => self.dialogs.about = Some(AboutDialog),
             UiAction::Alert { title, message } => self.alerts.push_back(Alert::new(title, message)),
             UiAction::Help => self.dialogs.help = Some(HelpDialog),
+            UiAction::Licenses => self.dialogs.licenses = Some(LicensesDialog),
             UiAction::Status(message) => self.status = message,
         }
     }

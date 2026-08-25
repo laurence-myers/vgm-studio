@@ -419,6 +419,8 @@ pub enum UiAction {
         message: String,
     },
     Help,
+    /// Open the per-core license table (from the About dialog).
+    Licenses,
     /// Set the status-bar text.
     Status(String),
 }

@@ -21,9 +21,10 @@ use crate::action::{
 };
 use crate::alert::{self, Alert};
 use crate::dialogs::{
-    BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog, Gd3TagDialog, GotoDialog,
-    HelpDialog, RenderWavDialog, ScreenshotRenameDialog, SettingsDialog, SplitDialog,
-    SplitSongsDialog, TrackEditDialog, UnwalkableVgmDialog, VgmMetadataDialog,
+    AboutDialog, BulkTagDialog, Dialogs, DroInfoDialog, FindLoopDialog, FindRegDialog,
+    Gd3TagDialog, GotoDialog, HelpDialog, LicensesDialog, RenderWavDialog, ScreenshotRenameDialog,
+    SettingsDialog, SplitDialog, SplitSongsDialog, TrackEditDialog, UnwalkableVgmDialog,
+    VgmMetadataDialog,
 };
 use crate::editor::{Editor, LoadFailure, LoadReport, OptimizeVgmOutcome};
 use crate::markers::RangeMarkers;
@@ -43,17 +44,12 @@ use crate::widgets::{
     boost_stepper, chip_panels::ChipPanels, loop_stepper, peak_meter, table, waveform,
 };
 
-/// The About box: who wrote it, and -- because this program links copyleft
-/// emulator cores -- what it is licensed under and where each core came from.
-///
-/// The core table is generated from [`vgms_synth::credits_text`] rather than
-/// typed here, so a core cannot be linked in without being credited.
-fn about_text() -> String {
-    crate::strings::app_about_text(
-        env!("CARGO_PKG_VERSION"),
-        vgms_synth::credits_text(),
-        crate::optimize::credit(),
-    )
+/// The About box body: who wrote it and, because this program links copyleft
+/// emulator cores, what the binary is licensed under. The per-core credit table
+/// lives in the separate Licenses dialog (rendered from [`vgms_synth::credits`]),
+/// so a core still cannot be linked in without being credited.
+pub(crate) fn about_text() -> String {
+    crate::strings::app_about_text(env!("CARGO_PKG_VERSION"), crate::optimize::credit())
 }
 
 /// What a click on the waveform means, given the button and whether Shift was
@@ -517,30 +513,10 @@ impl fmt::Debug for VgmStudioApp {
 mod about_tests {
     use super::about_text;
 
-    #[test]
-    fn the_about_box_credits_every_compiled_core() {
-        // The About box must credit every linked LGPL/GPL core; driving it from
-        // `vgms_synth::credits` rather than typed copy is what stops a new core
-        // from shipping uncredited.
-        //
-        // Installed first so both reads below see the same registry: the GUI
-        // tests install it concurrently, and comparing text from the ambient
-        // fallback against credits read after the install would disagree.
-        crate::widgets::chip_output::install_test_cores();
-        let text = about_text();
-        for core in vgms_synth::credits() {
-            assert!(
-                text.contains(&core.label),
-                "{} is compiled in but not credited in the About box",
-                core.label
-            );
-            assert!(
-                text.contains(vgms_synth::short_license(&core.license)),
-                "{} is credited without its license",
-                core.label
-            );
-        }
-    }
+    // The "every compiled core is credited" guarantee now lives with the data it
+    // draws from: `vgms_synth::credits` (tested in that crate) is rendered
+    // structurally by the Licenses dialog's for-loop, so a new core cannot ship
+    // uncredited without also being unregistered (and thus unusable).
 
     #[test]
     fn the_about_box_states_the_binarys_license_not_a_crates() {

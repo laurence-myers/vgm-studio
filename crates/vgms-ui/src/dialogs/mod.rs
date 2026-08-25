@@ -8,6 +8,7 @@
 //!
 //! [`Action`]: crate::action::Action
 
+pub mod about;
 pub mod bulk_tag;
 pub mod dro_info;
 pub mod find_loop;
@@ -15,6 +16,7 @@ pub mod find_reg;
 pub mod gd3_tag;
 pub mod goto;
 pub mod help;
+pub mod licenses;
 pub mod render_wav;
 pub mod screenshot_rename;
 pub mod settings;
@@ -25,6 +27,7 @@ pub mod track_optimize;
 pub mod unwalkable_vgm;
 pub mod vgm_metadata;
 
+pub use about::AboutDialog;
 pub use bulk_tag::BulkTagDialog;
 pub use dro_info::DroInfoDialog;
 pub use find_loop::{FindLoopDialog, LoopSearchDoc};
@@ -32,6 +35,7 @@ pub use find_reg::FindRegDialog;
 pub use gd3_tag::Gd3TagDialog;
 pub use goto::GotoDialog;
 pub use help::HelpDialog;
+pub use licenses::LicensesDialog;
 pub use render_wav::RenderWavDialog;
 pub use screenshot_rename::ScreenshotRenameDialog;
 pub use settings::{SettingsDialog, SongContext};
@@ -167,6 +171,10 @@ fn modal_width(ctx: &egui::Context, wanted: f32) -> f32 {
 /// Wide enough for a label column plus a value that reads as a line of text,
 /// and still a dialog rather than a window on a laptop screen.
 const MODAL_WIDTH: f32 = 560.0;
+
+/// The width for a dialog that is a table read across rather than a form filled
+/// in down: Help, About and the Licenses list all share it.
+pub(crate) const WIDE_MODAL_WIDTH: f32 = 820.0;
 
 /// A dialog text field that wraps instead of hiding what does not fit.
 ///
@@ -385,6 +393,10 @@ pub struct Dialogs {
     pub screenshot_rename: Option<ScreenshotRenameDialog>,
     /// Help > Help: what every key and gesture does.
     pub help: Option<HelpDialog>,
+    /// Help > About: identity and the binary's license.
+    pub about: Option<AboutDialog>,
+    /// The per-core license table, opened from About.
+    pub licenses: Option<LicensesDialog>,
     /// File > Render to WAV: which of the editor's mix settings to apply.
     pub render_wav: Option<RenderWavDialog>,
     /// File > Split Channels: the output format and percussion handling.
@@ -414,6 +426,8 @@ impl Dialogs {
             || self.bulk_tag.is_some()
             || self.screenshot_rename.is_some()
             || self.help.is_some()
+            || self.about.is_some()
+            || self.licenses.is_some()
             || self.render_wav.is_some()
             || self.split.is_some()
             || self.split_songs.is_some()
@@ -447,6 +461,8 @@ impl Dialogs {
             d.show(ctx, palette, actions)
         });
         retain(&mut self.help, |d| d.show(ctx, palette, actions));
+        retain(&mut self.about, |d| d.show(ctx, palette, actions));
+        retain(&mut self.licenses, |d| d.show(ctx, palette, actions));
         retain(&mut self.render_wav, |d| d.show(ctx, palette, actions));
         retain(&mut self.split, |d| d.show(ctx, palette, actions));
         retain(&mut self.split_songs, |d| d.show(ctx, palette, actions));

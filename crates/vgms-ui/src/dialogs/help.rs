@@ -231,7 +231,7 @@ impl HelpDialog {
             "help-modal",
             "Help",
             palette,
-            820.0,
+            super::WIDE_MODAL_WIDTH,
             |ui| {
                 ui.colored_label(palette.muted, crate::strings::HELP_ADVICE);
                 ui.add_space(4.0);
