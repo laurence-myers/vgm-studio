@@ -454,6 +454,30 @@ impl Default for UiConfig {
     }
 }
 
+/// The three optimiser knobs as one value: which optimiser to run, and whether
+/// the external tools' sample-ROM trim and DAC-run collapse are enabled.
+///
+/// Held flat on [`AppConfig`] for the ini, and gathered here so the same set can
+/// be carried as a per-track override in a pack (each track optimising its own
+/// way) that falls back to the global default when unset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OptimizeOptions {
+    pub optimizer: OptimizerChoice,
+    pub sample_roms: bool,
+    pub dac_runs: bool,
+}
+
+impl Default for OptimizeOptions {
+    fn default() -> Self {
+        Self {
+            optimizer: OptimizerChoice::default(),
+            // The pipeline's own defaults: both external stages run.
+            sample_roms: true,
+            dac_runs: true,
+        }
+    }
+}
+
 /// Not `Copy`: [`AudioConfig::retrowave_port`] is an owned port name.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AppConfig {
@@ -483,6 +507,17 @@ impl Default for AppConfig {
 }
 
 impl AppConfig {
+    /// The optimiser knobs as one [`OptimizeOptions`] -- the global default a
+    /// per-track override falls back to.
+    #[must_use]
+    pub fn optimize_options(&self) -> OptimizeOptions {
+        OptimizeOptions {
+            optimizer: self.optimizer,
+            sample_roms: self.optimize_sample_roms,
+            dac_runs: self.optimize_dac_runs,
+        }
+    }
+
     /// Builds a config from zero or more INI documents, later ones overriding
     /// earlier ones.
     ///

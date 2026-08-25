@@ -619,6 +619,11 @@ pub(crate) const SETTINGS_SAMPLE_ROMS_HOVER: &str =
     "Run vgm_sro to strip unused regions from sample ROMs.";
 pub(crate) const SETTINGS_DAC_RUNS_HOVER: &str =
     "Run optdac to collapse long runs of identical DAC writes.";
+pub(crate) const TRACK_OPTIMIZE_USE_GLOBAL_HINT: &str =
+    "Drop this track's own options and fall back to the global Settings default.";
+pub(crate) fn track_optimize_intro(file_name: &str) -> String {
+    format!("Optimiser options for {file_name}, overriding the global Settings default:")
+}
 pub(crate) const SETTINGS_FREQUENCY_HOVER: &str = "49716 Hz is the OPL3's native rate";
 pub(crate) const SETTINGS_BUFFER_SIZE_HOVER: &str = "Frames per audio callback. Smaller seeks and mutes sooner; larger \
      avoids dropouts.";

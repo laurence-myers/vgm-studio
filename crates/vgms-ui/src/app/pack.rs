@@ -574,6 +574,47 @@ impl VgmStudioApp {
         }
     }
 
+    /// Opens the per-track optimiser-options dialog, seeded with the track's
+    /// effective options (its override, or the global default).
+    pub(super) fn open_track_optimize_options(&mut self, index: usize) {
+        let global = self.config.optimize_options();
+        let dialog = self.pack.as_ref().and_then(|pack| {
+            let track = pack.tracks.get(index)?;
+            if !track.is_readable() {
+                return None;
+            }
+            let had_override = pack.track_optimize_overrides.contains_key(&track.file_name);
+            let options = pack.effective_optimize_options(&track.file_name, global);
+            Some(crate::dialogs::TrackOptimizeDialog::new(
+                track.file_name.clone(),
+                options,
+                had_override,
+            ))
+        });
+        if let Some(dialog) = dialog {
+            self.dialogs.track_optimize = Some(dialog);
+        }
+    }
+
+    /// Sets a track's optimiser-options override, or clears it (`None`) back to
+    /// the global default. Keyed by the file name the dialog opened on.
+    pub(super) fn set_track_optimize_options(
+        &mut self,
+        file_name: String,
+        options: Option<vgms_core::config::OptimizeOptions>,
+    ) {
+        if let Some(pack) = self.pack.as_mut() {
+            match options {
+                Some(options) => {
+                    pack.track_optimize_overrides.insert(file_name, options);
+                }
+                None => {
+                    pack.track_optimize_overrides.remove(&file_name);
+                }
+            }
+        }
+    }
+
     /// Applies a quick edit: rewrite the track's bytes with the new tag (and, if
     /// the name changed, rename the file). The list rescans on the outcomes, and
     /// the edit's inverse is stashed so it becomes undoable once it lands.
@@ -1044,21 +1085,20 @@ impl VgmStudioApp {
     /// Builds the optimise request for the track named `name`, or `None` when it
     /// is gone, unreadable, or has no path to write back to.
     fn song_optimize_request(&self, name: &str) -> Option<SongOptimizeRequest> {
-        let track = self
-            .pack
-            .as_ref()?
-            .tracks
-            .iter()
-            .find(|track| track.file_name == name)?;
+        let pack = self.pack.as_ref()?;
+        let track = pack.tracks.iter().find(|track| track.file_name == name)?;
         if !track.is_readable() || track.path.is_none() {
             return None;
         }
+        // The track's own options if it has an override, else the global default.
+        let options =
+            pack.effective_optimize_options(&track.file_name, self.config.optimize_options());
         Some(SongOptimizeRequest {
             name: track.file_name.clone(),
             bytes: track.bytes.clone(),
-            sample_roms: self.config.optimize_sample_roms,
-            dac_runs: self.config.optimize_dac_runs,
-            optimizer: self.config.optimizer,
+            sample_roms: options.sample_roms,
+            dac_runs: options.dac_runs,
+            optimizer: options.optimizer,
             output_rate: self.config.audio.frequency,
         })
     }
@@ -1396,6 +1436,7 @@ impl VgmStudioApp {
     /// them.
     pub(super) fn close_pack_dialogs(&mut self) {
         self.dialogs.track_edit = None;
+        self.dialogs.track_optimize = None;
         self.dialogs.bulk_tag = None;
         self.dialogs.screenshot_rename = None;
     }

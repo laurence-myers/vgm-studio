@@ -334,6 +334,10 @@ pub struct PackState {
     /// own record); cleared only when the pack is reopened or a track is
     /// re-optimised.
     pub optimize_results: HashMap<String, TrackOptimizeStatus>,
+    /// Per-track optimiser options, keyed by `file_name`, overriding the global
+    /// Settings default for that track's Optimize. A user intent (not an audio
+    /// fact), so like [`Self::optimize_results`] it is kept across a rescan.
+    pub track_optimize_overrides: HashMap<String, vgms_core::config::OptimizeOptions>,
     /// Whether "Apply suggested modifiers" levels the whole pack by its loudest
     /// track (album mode, the VGMRips convention) rather than normalising each
     /// track to its own peak.
@@ -421,6 +425,7 @@ impl PackState {
             preview: None,
             peaks: HashMap::new(),
             optimize_results: HashMap::new(),
+            track_optimize_overrides: HashMap::new(),
             album_normalize: true,
             focus_field: None,
             section: PackSection::default(),
@@ -467,6 +472,20 @@ impl PackState {
         // is brought into view in -- the request made at key-press time was
         // spent on the list as it was before the move.
         self.scroll_to_track = self.focused_track.filter(|row| *row < self.tracks.len());
+    }
+
+    /// The optimiser options for `file_name`: its per-track override if one is
+    /// set, else the given global default.
+    #[must_use]
+    pub fn effective_optimize_options(
+        &self,
+        file_name: &str,
+        global: vgms_core::config::OptimizeOptions,
+    ) -> vgms_core::config::OptimizeOptions {
+        self.track_optimize_overrides
+            .get(file_name)
+            .copied()
+            .unwrap_or(global)
     }
 
     /// The transaction that moves the track at `from` to `to`, renumbering the
@@ -1361,6 +1380,29 @@ mod tests {
             release_date: "1994".to_owned(),
             ..Gd3Tag::default()
         }
+    }
+
+    #[test]
+    fn a_per_track_optimize_override_wins_over_the_global_default() {
+        use vgms_core::config::{OptimizeOptions, OptimizerChoice};
+        let mut pack = PackState::from_folder(folder("Game", vec![]), None);
+        let global = OptimizeOptions::default();
+        // No override: the global default is returned.
+        assert_eq!(pack.effective_optimize_options("01 A.vgm", global), global);
+        // An override wins for its track only.
+        let custom = OptimizeOptions {
+            optimizer: OptimizerChoice::Tools,
+            sample_roms: false,
+            dac_runs: true,
+        };
+        pack.track_optimize_overrides
+            .insert("01 A.vgm".to_owned(), custom);
+        assert_eq!(pack.effective_optimize_options("01 A.vgm", global), custom);
+        assert_eq!(
+            pack.effective_optimize_options("02 B.vgm", global),
+            global,
+            "another track still falls back to the global default"
+        );
     }
 
     /// A Mega Drive VGM: a YM2612 and an SN76489, and a body of commands the OPL

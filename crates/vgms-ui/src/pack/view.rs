@@ -1162,6 +1162,14 @@ fn row_menu(
                     actions.push(Action::Pack(PackAction::OptimizeTrack(index)));
                     ui.close();
                 }
+                // Per-track optimiser options, overriding the global Settings
+                // default for this track's Optimize.
+                let options =
+                    ui.add_enabled(optimizable, egui::Button::new("Optimize options\u{2026}"));
+                if optimizable && options.clicked() {
+                    actions.push(Action::Pack(PackAction::OpenTrackOptimizeOptions(index)));
+                    ui.close();
+                }
             }
         })
         .0

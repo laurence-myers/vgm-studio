@@ -304,6 +304,14 @@ pub enum PackAction {
     OptimizeTrack(usize),
     /// Optimise every readable track in turn, each verified and written back.
     OptimizeAllTracks,
+    /// Open the per-track optimiser-options dialog for a track.
+    OpenTrackOptimizeOptions(usize),
+    /// Set (or, with `None`, clear back to the global default) a track's own
+    /// optimiser options, keyed by the file name the dialog opened on.
+    SetTrackOptimizeOptions {
+        file_name: String,
+        options: Option<vgms_core::config::OptimizeOptions>,
+    },
     /// Open the file picker for a `.zip` to edit as an in-memory pack (wt-8).
     /// The picked file arrives on the ordinary picked-file channel, so the
     /// discard-changes prompt is the same one a dropped `.zip` raises.

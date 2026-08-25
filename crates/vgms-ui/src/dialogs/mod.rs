@@ -21,6 +21,7 @@ pub mod settings;
 pub mod split;
 pub mod split_songs;
 pub mod track_edit;
+pub mod track_optimize;
 pub mod unwalkable_vgm;
 pub mod vgm_metadata;
 
@@ -37,6 +38,7 @@ pub use settings::{SettingsDialog, SongContext};
 pub use split::SplitDialog;
 pub use split_songs::SplitSongsDialog;
 pub use track_edit::TrackEditDialog;
+pub use track_optimize::TrackOptimizeDialog;
 pub use unwalkable_vgm::UnwalkableVgmDialog;
 pub use vgm_metadata::VgmMetadataDialog;
 
@@ -375,6 +377,8 @@ pub struct Dialogs {
     pub settings: Option<SettingsDialog>,
     /// Pack mode's per-track quick edit (rename + GD3).
     pub track_edit: Option<TrackEditDialog>,
+    /// Pack mode's per-track optimiser-options override.
+    pub track_optimize: Option<TrackOptimizeDialog>,
     /// Pack mode's bulk GD3 editor (chosen fields, chosen tracks).
     pub bulk_tag: Option<BulkTagDialog>,
     /// Pack mode's screenshot rename (named after the game, or a variant of it).
@@ -406,6 +410,7 @@ impl Dialogs {
             || self.vgm_metadata.is_some()
             || self.settings.is_some()
             || self.track_edit.is_some()
+            || self.track_optimize.is_some()
             || self.bulk_tag.is_some()
             || self.screenshot_rename.is_some()
             || self.help.is_some()
@@ -436,6 +441,7 @@ impl Dialogs {
         retain(&mut self.vgm_metadata, |d| d.show(ctx, palette, actions));
         retain(&mut self.settings, |d| d.show(ctx, palette, actions));
         retain(&mut self.track_edit, |d| d.show(ctx, palette, actions));
+        retain(&mut self.track_optimize, |d| d.show(ctx, palette, actions));
         retain(&mut self.bulk_tag, |d| d.show(ctx, palette, actions));
         retain(&mut self.screenshot_rename, |d| {
             d.show(ctx, palette, actions)
