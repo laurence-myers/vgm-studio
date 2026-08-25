@@ -1031,11 +1031,10 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
 fn a_generic_render_with_neutral_mix_options_stays_faithful() {
     let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
     // One destination per render (the flow asks before each render).
-    handles
-        .files
-        .borrow_mut()
-        .save_paths
-        .extend([Some(PathBuf::from("C:/out/a.wav")), Some(PathBuf::from("C:/out/b.wav"))]);
+    handles.files.borrow_mut().save_paths.extend([
+        Some(PathBuf::from("C:/out/a.wav")),
+        Some(PathBuf::from("C:/out/b.wav")),
+    ]);
 
     act(
         &mut harness,
