@@ -87,7 +87,8 @@ fn build_app(
         None,
     );
     // An `e2e` build wraps the app so `window.__vgms_e2e` can drive it (wt-6); a
-    // release build boxes it directly and exposes nothing.
+    // release build wraps it in the media-session integration so OS media keys
+    // drive the transport (the e2e harness does not exercise media keys).
     let boxed: Box<dyn eframe::App> = {
         #[cfg(feature = "e2e")]
         {
@@ -95,7 +96,7 @@ fn build_app(
         }
         #[cfg(not(feature = "e2e"))]
         {
-            Box::new(app)
+            crate::media::MediaSessionApp::attach(app, cc.egui_ctx.clone())
         }
     };
     Ok(boxed)
