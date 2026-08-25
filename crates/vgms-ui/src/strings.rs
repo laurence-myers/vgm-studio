@@ -738,6 +738,8 @@ pub(crate) const VGM_METADATA_MEASURE_HINT: &str =
     "Measure the song's peak and suggest a modifier that brings it to full scale";
 pub(crate) const VGM_METADATA_FROM_MEASURED_HINT: &str =
     "Fill the modifier from the volume already measured in the editor, without re-scanning";
+pub(crate) const VGM_METADATA_MULTIPLIER_HINT: &str =
+    "Set the modifier from a linear multiplier, floored to the nearest valid value";
 pub(crate) const VGM_METADATA_INVALID_TITLE: &str = "Invalid VGM metadata";
 pub(crate) const VGM_METADATA_LOOP_END_AFTER_START: &str =
     "Loop end must come after the loop start.";

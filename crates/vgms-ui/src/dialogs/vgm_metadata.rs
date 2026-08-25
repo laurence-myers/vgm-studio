@@ -40,6 +40,11 @@ pub struct VgmMetadataDialog {
     loop_base: String,
     loop_modifier: String,
     volume_modifier: String,
+    /// A linear multiplier the user can type instead of the raw byte; "Apply"
+    /// floors it to the nearest ladder value and writes that into
+    /// [`Self::volume_modifier`]. Kept as its own text so a half-typed value is
+    /// not snapped out from under the user.
+    volume_multiplier: String,
     /// The peak from the most recent "Measure", for the dBFS/clipping readout.
     /// `None` until a measurement lands.
     measured: Option<vgms_synth::Peak>,
@@ -96,6 +101,7 @@ impl VgmMetadataDialog {
             loop_base: loop_base.to_string(),
             loop_modifier: loop_modifier.to_string(),
             volume_modifier: volume_modifier.to_string(),
+            volume_multiplier: String::new(),
             measured: None,
             song_len,
             samples_prefix,
@@ -116,6 +122,16 @@ impl VgmMetadataDialog {
     /// the peak already stored).
     fn set_modifier_from_peak(&mut self, peak: vgms_synth::Peak) {
         self.volume_modifier = vgms_core::suggest_volume_modifier(peak.max_level, None).to_string();
+    }
+
+    /// Floors a typed linear multiplier onto the modifier ladder and writes the
+    /// resulting byte into the modifier field. Flooring (not rounding) keeps the
+    /// applied factor at or below what was asked, so it never overshoots into
+    /// clipping. A non-numeric field is left alone rather than cleared.
+    fn apply_multiplier(&mut self) {
+        if let Ok(factor) = self.volume_multiplier.trim().parse::<f32>() {
+            self.volume_modifier = vgms_core::floor_volume_modifier(factor).to_string();
+        }
     }
 
     /// The "= N.NNx" gloss beside the volume-modifier field: what factor the
@@ -213,6 +229,21 @@ impl VgmMetadataDialog {
                                 }
                             });
                             ui.label(self.volume_modifier_readout());
+                        });
+                        ui.end_row();
+
+                        // An alternative way in: type a linear multiplier and
+                        // floor it onto the ladder, rather than the raw byte above.
+                        ui.label("Volume multiplier:");
+                        ui.horizontal(|ui| {
+                            super::text_field(ui, palette, &mut self.volume_multiplier, 70.0);
+                            ui.label("\u{00d7}");
+                            if bevel::button(ui, palette, "Apply")
+                                .on_hover_text(crate::strings::VGM_METADATA_MULTIPLIER_HINT)
+                                .clicked()
+                            {
+                                self.apply_multiplier();
+                            }
                         });
                         ui.end_row();
                     });
@@ -340,6 +371,7 @@ mod tests {
             loop_base: "0".to_owned(),
             loop_modifier: "0".to_owned(),
             volume_modifier: "0".to_owned(),
+            volume_multiplier: String::new(),
             measured: None,
             song_len: 4,
             samples_prefix: vec![0, 10, 30, 60, 100],
@@ -454,6 +486,26 @@ mod tests {
                 ..
             })]
         ));
+    }
+
+    #[test]
+    fn applying_a_multiplier_floors_it_onto_the_ladder() {
+        let mut dialog = dialog();
+        // An exact ladder value lands on its byte: 2.0x -> 0x20 = 32.
+        dialog.volume_multiplier = "2.0".to_owned();
+        dialog.apply_multiplier();
+        assert_eq!(dialog.volume_modifier, "32");
+        // A between-rungs value floors below itself, never above (clip-safe):
+        // 2.3x decodes back to <= 2.3.
+        dialog.volume_multiplier = "2.3".to_owned();
+        dialog.apply_multiplier();
+        let byte: u8 = dialog.volume_modifier.parse().expect("a byte");
+        assert!(vgms_core::volume_modifier_factor(byte) <= 2.3);
+        // A non-numeric field is left alone, not cleared.
+        dialog.volume_modifier = "5".to_owned();
+        dialog.volume_multiplier = "??".to_owned();
+        dialog.apply_multiplier();
+        assert_eq!(dialog.volume_modifier, "5");
     }
 
     #[test]
