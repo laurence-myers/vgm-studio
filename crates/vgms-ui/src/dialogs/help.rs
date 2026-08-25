@@ -111,6 +111,20 @@ const SECTIONS: &[Section] = &[
         ],
     },
     Section {
+        title: "Media keys",
+        note: Some(
+            "The OS media-transport keys, handled even while the window is not focused \
+             (Windows, and the web build's browser tab).",
+        ),
+        rows: &[
+            (
+                Keys::Text("Play / Pause"),
+                "Play, pause, or toggle playback",
+            ),
+            (Keys::Text("Stop"), "Stop playback"),
+        ],
+    },
+    Section {
         title: "Editor: moving about",
         note: Some("The selected row is where playback starts."),
         rows: &[
