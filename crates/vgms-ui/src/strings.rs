@@ -120,6 +120,7 @@ pub(crate) const APP_STATUS_OPEN_FILE_FIRST: &str = "Please open a file first.";
 pub(crate) const APP_STATUS_HEADER_AGREES_NOTHING: &str = "The header agrees with the stream.";
 pub(crate) const APP_STATUS_ALREADY_RENDERING: &str = "Already rendering a WAV.";
 pub(crate) const APP_STATUS_RENDERING_WAV: &str = "Rendering to WAV...";
+pub(crate) const APP_STATUS_RENDER_CHOOSE_PATH: &str = "Choose where to save the WAV...";
 pub(crate) const APP_STATUS_NOTHING_TO_SPLIT: &str = "There is nothing here to split.";
 pub(crate) const APP_STATUS_SPLITTING_CHANNELS: &str = "Splitting channels...";
 pub(crate) const APP_STATUS_SPLITTING_SONGS: &str = "Splitting songs...";

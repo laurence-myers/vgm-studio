@@ -13,8 +13,9 @@ impl VgmStudioApp {
             return;
         };
         // One render at a time: a second would finish into the same save queue,
-        // and the first's dialog is already in the user's way.
-        if self.tasks.is_busy_kind(TaskKind::RenderWav) {
+        // and the first's dialog is already in the user's way. `render_flow` also
+        // covers the window between the save dialog opening and the render task.
+        if self.tasks.is_busy_kind(TaskKind::RenderWav) || self.render_flow.is_some() {
             self.status = crate::strings::APP_STATUS_ALREADY_RENDERING.to_owned();
             return;
         }
@@ -36,18 +37,41 @@ impl VgmStudioApp {
             },
             boost,
         };
-        self.tasks.submit(
-            TaskRequest::RenderWav {
-                source,
-                mix,
-                sample_rate: self.config.audio.frequency,
-                bit_depth: self.config.audio.bit_depth,
-                resampling: self.resample_mode(),
-                core_choices,
-            },
-            None,
-        );
-        self.status = crate::strings::APP_STATUS_RENDERING_WAV.to_owned();
+        // `song.dro` becomes `song.dro.wav`, the name `vgmstudio render` writes.
+        let suggested_name = format!("{}.wav", source.name());
+        // Ask where to save *before* rendering: a cancelled dialog wastes nothing,
+        // and the bytes are then written straight to the chosen path. The render
+        // request waits in `render_flow` until the path arrives (poll_services).
+        let request = TaskRequest::RenderWav {
+            source,
+            mix,
+            sample_rate: self.config.audio.frequency,
+            bit_depth: self.config.audio.bit_depth,
+            resampling: self.resample_mode(),
+            core_choices,
+        };
+        self.render_flow = Some(RenderWavFlow::AwaitingPath(Box::new(request)));
+        self.files.pick_save_path(suggested_name);
+        self.status = crate::strings::APP_STATUS_RENDER_CHOOSE_PATH.to_owned();
+    }
+
+    /// Once the Render to WAV destination is chosen (or the dialog dismissed),
+    /// submit the stashed render bound for that path, or abandon it.
+    pub(super) fn render_wav_into(&mut self, chosen: Option<PathBuf>) {
+        let Some(RenderWavFlow::AwaitingPath(request)) = self.render_flow.take() else {
+            // A path arrived with no render waiting for it; nothing to do.
+            return;
+        };
+        match chosen {
+            Some(path) => {
+                self.tasks.submit(*request, None);
+                self.render_flow = Some(RenderWavFlow::Rendering { path });
+                self.status = crate::strings::APP_STATUS_RENDERING_WAV.to_owned();
+            }
+            None => {
+                self.status = crate::strings::APP_MSG_SAVE_CANCELLED.to_owned();
+            }
+        }
     }
 
     /// Whether a split (of either kind) is somewhere between its dialog and its

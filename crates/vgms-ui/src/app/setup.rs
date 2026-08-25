@@ -39,6 +39,7 @@ impl VgmStudioApp {
             active_tab: AppTab::Editor,
             pending_saves: VecDeque::new(),
             split_flow: None,
+            render_flow: None,
             waveform: WaveformState::default(),
             peak_meter: PeakMeterState::default(),
             boost_ceiling: None,

@@ -74,6 +74,9 @@ pub struct WebFileService {
     renamed: Rc<RefCell<Option<Result<(), String>>>>,
     deleted: Rc<RefCell<Option<Result<(), String>>>>,
     output_folder: Rc<RefCell<Option<Option<PathBuf>>>>,
+    /// The Render to WAV "destination": on the web just the download name,
+    /// resolved at once (the write is a browser download).
+    save_path: Rc<RefCell<Option<Option<PathBuf>>>>,
     /// Zip-opened packs (wt-8): their edits stay in memory here, and are served
     /// synchronously, ahead of the async File System Access path below.
     archives: ArchiveBackend,
@@ -101,6 +104,7 @@ impl WebFileService {
             renamed: Rc::new(RefCell::new(None)),
             deleted: Rc::new(RefCell::new(None)),
             output_folder: Rc::new(RefCell::new(None)),
+            save_path: Rc::new(RefCell::new(None)),
             archives: ArchiveBackend::new(),
             notify: Rc::new(notify),
         }
@@ -570,5 +574,18 @@ impl FileService for WebFileService {
 
     fn poll_output_folder(&mut self) -> Option<Option<PathBuf>> {
         self.output_folder.borrow_mut().take()
+    }
+
+    fn pick_save_path(&mut self, suggested_name: String) {
+        // The web has no writable path: the "destination" is just the download
+        // name. Resolve it at once so the shared render flow proceeds, and the
+        // later in-place write to this token-less path falls through to a
+        // browser download (see `save`).
+        *self.save_path.borrow_mut() = Some(Some(PathBuf::from(suggested_name)));
+        (self.notify)();
+    }
+
+    fn poll_save_path(&mut self) -> Option<Option<PathBuf>> {
+        self.save_path.borrow_mut().take()
     }
 }

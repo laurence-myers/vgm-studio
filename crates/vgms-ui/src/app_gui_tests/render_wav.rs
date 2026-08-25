@@ -10,32 +10,69 @@ fn the_file_menu_opens_the_render_dialog() {
 }
 
 #[test]
-fn rendering_with_no_options_offers_the_wav_to_save() {
+fn rendering_with_no_options_writes_to_the_chosen_path() {
     // Inline tasks so the render completes within the same run.
     let (mut harness, handles) = build(Some(picked(&tone_song())), true, false);
+    let dest = PathBuf::from("C:/out/tone.dro.wav");
+    handles
+        .files
+        .borrow_mut()
+        .save_paths
+        .push_back(Some(dest.clone()));
+
     open_render_wav_dialog(&mut harness);
     harness.get_by_label("Render").click();
     harness.run();
 
-    // The dialog closed, the task ran, and its bytes went to a save dialog under
-    // the CLI's own name: song.dro -> song.dro.wav.
+    // The dialog closed; the save dialog was asked *before* the render under the
+    // CLI's own name (song.dro -> song.dro.wav), and the bytes were written
+    // straight to the chosen path -- no post-render dialog.
     assert!(harness.state().dialogs.render_wav.is_none());
     let files = handles.files.borrow();
-    let Some(SaveRequest::Dialog {
-        suggested_name,
-        bytes,
-    }) = files.save_requests.last()
-    else {
-        panic!("expected a save dialog, got {:?}", files.save_requests)
+    assert_eq!(files.pick_save_path_calls, 1);
+    assert_eq!(
+        files.save_path_suggestions.last().map(String::as_str),
+        Some("tone.dro.wav")
+    );
+    let Some(SaveRequest::InPlace { path, bytes }) = files.save_requests.last() else {
+        panic!("expected an in-place save, got {:?}", files.save_requests)
     };
-    assert_eq!(suggested_name, "tone.dro.wav");
+    assert_eq!(path, &dest);
     assert!(bytes.starts_with(b"RIFF"), "not a WAV");
+}
+
+#[test]
+fn a_dismissed_save_dialog_renders_nothing() {
+    let (mut harness, handles) = build(Some(picked(&tone_song())), true, false);
+    // A dismissed picker (the default when no path is queued).
+    handles.files.borrow_mut().save_paths.push_back(None);
+
+    open_render_wav_dialog(&mut harness);
+    harness.get_by_label("Render").click();
+    harness.run();
+
+    assert_eq!(harness.state().status, "The save was cancelled.");
+    assert!(
+        !handles
+            .tasks
+            .borrow()
+            .submitted
+            .iter()
+            .any(|(kind, _)| *kind == TaskKind::RenderWav),
+        "a cancelled dialog wastes no render"
+    );
+    assert!(handles.files.borrow().save_requests.is_empty());
 }
 
 #[test]
 fn a_saved_render_is_reported_in_the_status_bar() {
     let (mut harness, handles) = build(Some(picked(&tone_song())), true, false);
-    let expected_path = PathBuf::from("C:/songs/tone.dro.wav");
+    let dest = PathBuf::from("C:/songs/tone.dro.wav");
+    handles
+        .files
+        .borrow_mut()
+        .save_paths
+        .push_back(Some(dest.clone()));
 
     open_render_wav_dialog(&mut harness);
     harness.get_by_label("Render").click();
@@ -43,30 +80,34 @@ fn a_saved_render_is_reported_in_the_status_bar() {
     assert_eq!(
         handles.files.borrow().save_requests.len(),
         1,
-        "the render should have reached the save dialog"
+        "the render should have been written in place"
     );
 
-    // Queue the outcome only now: the fake hands back whatever is queued on the
-    // next poll, which would otherwise be consumed before the save was made.
+    // The in-place save's outcome is delivered on the next poll.
     handles
         .files
         .borrow_mut()
         .save_outcomes
         .push_back(SaveOutcome::Saved {
             name: "tone.dro.wav".to_owned(),
-            path: Some(expected_path.clone()),
+            path: Some(dest.clone()),
         });
     harness.run();
 
     assert_eq!(
         harness.state().status,
-        format!("Rendered {}.", expected_path.display())
+        format!("Rendered {}.", dest.display())
     );
 }
 
 #[test]
 fn the_render_options_reach_the_task() {
     let (mut harness, handles) = harness_with_song(&tone_song());
+    handles
+        .files
+        .borrow_mut()
+        .save_paths
+        .push_back(Some(PathBuf::from("C:/out/tone.dro.wav")));
     // Mute a channel and pan another, so "apply" has something to apply.
     harness.state_mut().channels.toggle_selected_channel(1);
     open_render_wav_dialog(&mut harness);
@@ -75,7 +116,8 @@ fn the_render_options_reach_the_task() {
     harness.get_by_label("Render").click();
     harness.run();
 
-    // Noop tasks record the submission without running it.
+    // Noop tasks record the submission without running it; the render is only
+    // submitted once the destination has been chosen.
     let tasks = handles.tasks.borrow();
     assert_eq!(
         tasks.submitted.last().map(|(kind, _)| *kind),
@@ -132,7 +174,11 @@ fn loading_a_song_cancels_a_render_of_the_previous_one() {
 #[test]
 fn a_failed_render_alerts_instead_of_saving() {
     let (mut harness, handles) = harness_with_song(&tone_song());
-    // Deliver a failure as though the task had produced one.
+    // A failure only ever arrives while a render is in flight, so set that state
+    // up (the destination was chosen before the render ran).
+    harness.state_mut().render_flow = Some(super::super::RenderWavFlow::Rendering {
+        path: PathBuf::from("C:/out/tone.dro.wav"),
+    });
     harness
         .state_mut()
         .handle_wav_result(Err("no disk".to_owned()));

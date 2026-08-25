@@ -210,6 +210,25 @@ pub trait FileService {
     fn poll_output_folder(&mut self) -> Option<Option<PathBuf>> {
         None
     }
+
+    /// Asks where a single rendered file should go, *before* it is rendered --
+    /// the Render to WAV destination, so a cancelled dialog wastes no render and
+    /// the bytes are written straight to the chosen path.
+    ///
+    /// Distinct from [`Self::pick_output_folder`], which picks a directory for a
+    /// batch. Defaulted to nothing; a real service resolves through
+    /// [`Self::poll_save_path`] (the native one with a save dialog, the web one
+    /// immediately, since there the write is a browser download).
+    fn pick_save_path(&mut self, suggested_name: String) {
+        let _ = suggested_name;
+    }
+
+    /// The path from the most recent [`Self::pick_save_path`]: `Some(Some(path))`
+    /// once chosen, `Some(None)` if the dialog was dismissed, `None` while
+    /// nothing has happened.
+    fn poll_save_path(&mut self) -> Option<Option<PathBuf>> {
+        None
+    }
 }
 
 /// The in-memory backend a file service embeds to serve zip-opened packs (wt-8).

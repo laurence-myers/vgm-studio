@@ -582,6 +582,9 @@ impl VgmStudioApp {
         if let Some(chosen) = self.files.poll_output_folder() {
             self.split_into(chosen);
         }
+        if let Some(chosen) = self.files.poll_save_path() {
+            self.render_wav_into(chosen);
+        }
         if let Some(outcome) = self.files.poll_saved() {
             // Outcomes arrive in the order the saves were made, so a FIFO of
             // purposes routes each one to the editor or the pack project.
@@ -676,19 +679,19 @@ impl VgmStudioApp {
         }
     }
 
-    /// Offers a finished render to the save dialog, or reports why there is
-    /// nothing to offer.
-    ///
-    /// The picker blocks the UI thread, but only once the long part is done --
-    /// the same shape as the pack zip export.
+    /// Writes a finished render straight to the path chosen before it ran, or
+    /// reports the failure. The destination was picked up front (`render_wav_into`),
+    /// so there is no dialog here -- the bytes go where the user already said.
     pub(super) fn handle_wav_result(&mut self, rendered: Result<(String, Vec<u8>), String>) {
+        // A result with no Rendering flow belongs to a render the user abandoned
+        // (by loading another song, which cancels the task); drop it.
+        let Some(RenderWavFlow::Rendering { path }) = self.render_flow.take() else {
+            return;
+        };
         match rendered {
-            Ok((name, bytes)) => {
+            Ok((_name, bytes)) => {
                 self.pending_saves.push_back(SavePurpose::WavExport);
-                self.files.save(SaveRequest::Dialog {
-                    suggested_name: name,
-                    bytes,
-                });
+                self.files.save(SaveRequest::InPlace { path, bytes });
             }
             Err(message) => {
                 self.status = crate::strings::APP_STATUS_WAV_RENDER_FAILED.to_owned();

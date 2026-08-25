@@ -41,6 +41,14 @@ pub(crate) struct FileLog {
     pub pick_output_folder_calls: usize,
     /// The answer the picker gave, waiting to be polled.
     pending_output_folder: Option<Option<PathBuf>>,
+    /// Answers for `pick_save_path` (Render to WAV destination), front first:
+    /// `Some(path)` chosen, `None` dismissed (also the default once empty).
+    pub save_paths: VecDeque<Option<PathBuf>>,
+    pub pick_save_path_calls: usize,
+    /// The suggested name each `pick_save_path` was called with, for assertions.
+    pub save_path_suggestions: Vec<String>,
+    /// The answer the save dialog gave, waiting to be polled.
+    pending_save_path: Option<Option<PathBuf>>,
     /// Fed to `poll_picked_image`, front first (the pack's Add Screenshot).
     pub picked_images: VecDeque<Result<PickedFile, String>>,
     pub pick_image_calls: usize,
@@ -184,6 +192,18 @@ impl FileService for FakeFileService {
         // anything asked for it.
         let answer = log.output_folders.pop_front().unwrap_or(None);
         log.pending_output_folder = Some(answer);
+    }
+
+    fn pick_save_path(&mut self, suggested_name: String) {
+        let mut log = self.0.borrow_mut();
+        log.pick_save_path_calls += 1;
+        log.save_path_suggestions.push(suggested_name);
+        let answer = log.save_paths.pop_front().unwrap_or(None);
+        log.pending_save_path = Some(answer);
+    }
+
+    fn poll_save_path(&mut self) -> Option<Option<PathBuf>> {
+        self.0.borrow_mut().pending_save_path.take()
     }
 
     fn poll_output_folder(&mut self) -> Option<Option<PathBuf>> {

@@ -35,6 +35,9 @@ pub struct NativeFileService {
     /// Where a split should write, once chosen. The inner `None` is a dismissed
     /// picker, which the app reports rather than treating as an error.
     output_folder: Option<Option<PathBuf>>,
+    /// Where a Render to WAV should write, chosen before the render runs. The
+    /// inner `None` is a dismissed save dialog.
+    save_path: Option<Option<PathBuf>>,
     /// Zip-opened packs (wt-8): their edits stay in this in-memory archive until
     /// Save Pack, and are routed here ahead of the filesystem.
     archives: ArchiveBackend,
@@ -251,6 +254,22 @@ impl FileService for NativeFileService {
 
     fn poll_output_folder(&mut self) -> Option<Option<PathBuf>> {
         self.output_folder.take()
+    }
+
+    fn pick_save_path(&mut self, suggested_name: String) {
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Render to WAV")
+            .set_file_name(&suggested_name);
+        for &(name, extensions) in save_filters(&suggested_name) {
+            dialog = dialog.add_filter(name, extensions);
+        }
+        // `save_file` already prompts before overwriting, so the later in-place
+        // write is to a path the user confirmed.
+        self.save_path = Some(dialog.save_file());
+    }
+
+    fn poll_save_path(&mut self) -> Option<Option<PathBuf>> {
+        self.save_path.take()
     }
 }
 

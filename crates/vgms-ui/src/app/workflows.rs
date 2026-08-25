@@ -28,6 +28,7 @@ impl VgmStudioApp {
                 // and landing late it would set this song's volume from it.
                 self.tasks.cancel(TaskKind::VolumeScan);
                 self.split_flow = None;
+                self.render_flow = None;
                 self.submit_waveform(None);
                 // Unload, not pause: the old stream's position must not leak
                 // into the fresh cursor/readout via the end-of-playback
@@ -123,6 +124,7 @@ impl VgmStudioApp {
         self.tasks.cancel(TaskKind::Split);
         self.tasks.cancel(TaskKind::VolumeScan);
         self.split_flow = None;
+        self.render_flow = None;
         self.audio.unload();
         self.audio_revision = None;
         self.was_playing = false;

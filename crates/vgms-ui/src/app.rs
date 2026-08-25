@@ -205,6 +205,19 @@ impl PendingSplit {
     }
 }
 
+/// The Render to WAV flow: the destination is chosen *before* the render runs,
+/// so a cancelled dialog wastes no render and the bytes are written straight to
+/// the chosen path.
+#[derive(Debug, Clone)]
+enum RenderWavFlow {
+    /// The options are set and the save dialog is up; holds the render request to
+    /// submit once a path is chosen. Boxed: `TaskRequest::RenderWav` is the
+    /// enum's largest variant.
+    AwaitingPath(Box<TaskRequest>),
+    /// Rendering, bound for `path`; the finished bytes are written there.
+    Rendering { path: PathBuf },
+}
+
 /// Whether the running file-op sequence is a fresh edit, a redo, or an undo --
 /// deciding which stack its transaction lands on when the sequence completes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -314,6 +327,10 @@ pub struct VgmStudioApp {
     /// as the in-flight guard and as the gate that drops a result belonging to a
     /// split the user has since abandoned.
     split_flow: Option<SplitFlow>,
+    /// The Render to WAV flow: `None` when idle, `AwaitingPath` while the save
+    /// dialog is up, `Rendering` while the bytes are being produced for a chosen
+    /// path. Also the in-flight guard against a second render.
+    render_flow: Option<RenderWavFlow>,
 
     waveform: WaveformState,
     /// The stereo output peak meter beside the waveform.
