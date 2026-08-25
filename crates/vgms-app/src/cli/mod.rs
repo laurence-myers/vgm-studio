@@ -16,6 +16,7 @@ pub mod play;
 pub mod render;
 pub mod retrowave;
 pub mod split;
+pub mod volume;
 
 #[cfg(windows)]
 mod console;
@@ -53,6 +54,8 @@ pub enum Command {
     Split(split::Args),
     /// Optimize a VGM: strip redundant writes and merge the delays left behind.
     Optimize(optimize::Args),
+    /// Batch-apply a volume boost (the header Volume Modifier) to VGM files.
+    Volume(volume::Args),
     /// List RetroWave OPL3 hardware and play a test chord on it.
     #[command(name = "retrowave-probe")]
     RetrowaveProbe(retrowave::Args),
@@ -87,6 +90,7 @@ pub fn run(command: Command) -> Result<()> {
         Command::Render(args) => render::run(&args),
         Command::Split(args) => split::run(&args),
         Command::Optimize(args) => optimize::run(&args),
+        Command::Volume(args) => volume::run(&args),
         Command::RetrowaveProbe(args) => retrowave::run(&args),
     }
 }
@@ -150,6 +154,30 @@ mod tests {
             panic!("expected an optimize command");
         };
         assert_eq!(args.output, Some(PathBuf::from("b.vgz")));
+        // The volume subcommand takes many files and a boost.
+        let Some(Command::Volume(args)) =
+            Cli::try_parse_from(["vgmstudio", "volume", "--boost", "2", "a.vgm", "b.vgz"])
+                .unwrap()
+                .command
+        else {
+            panic!("expected a volume command");
+        };
+        assert_eq!(args.inputs.len(), 2);
+        assert_eq!(args.boost, Some(2.0));
+        // --boost and --modifier are mutually exclusive.
+        assert!(
+            Cli::try_parse_from([
+                "vgmstudio",
+                "volume",
+                "--boost",
+                "2",
+                "--modifier",
+                "32",
+                "a.vgm"
+            ])
+            .is_err(),
+            "boost and modifier cannot both be given"
+        );
         assert!(matches!(
             Cli::try_parse_from(["vgmstudio", "retrowave-probe"])
                 .unwrap()

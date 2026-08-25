@@ -69,10 +69,11 @@ cargo run -p vgms-app -- render song.dro         # write song.dro.wav
 cargo run -p vgms-app -- split song.dro          # one WAV per channel used
 cargo run -p vgms-app -- split --song song.vgm   # one VGM per channel instead
 cargo run -p vgms-app -- optimize song.vgm       # drop redundant writes, merge delays
+cargo run -p vgms-app -- volume --boost 2 a.vgm  # set the header volume boost (batch)
 cargo run -p vgms-app -- retrowave-probe         # find and test a RetroWave board
 ```
 
-The five subcommands are `play`, `render`, `split`, `optimize` and
+The six subcommands are `play`, `render`, `split`, `optimize`, `volume` and
 `retrowave-probe`. `convert` is **not** one -- DRO v2 -> v1 is a GUI action
 (Edit > Convert to DRO v1).
 
