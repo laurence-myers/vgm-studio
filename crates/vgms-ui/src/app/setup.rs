@@ -62,6 +62,7 @@ impl VgmStudioApp {
             loop_progress: None,
             window_title: String::new(),
             was_playing: false,
+            media_keys: MediaKeys::default(),
             pending_open: initial_file,
             pending_load: None,
             quitting: false,
@@ -77,6 +78,20 @@ impl VgmStudioApp {
             #[cfg(any(test, feature = "e2e"))]
             e2e_actions: VecDeque::new(),
         }
+    }
+
+    /// A handle for the platform to post OS media-key transport commands into
+    /// (native SMTC, web media session); the app drains it each frame.
+    #[must_use]
+    pub fn media_keys(&self) -> MediaKeys {
+        self.media_keys.clone()
+    }
+
+    /// Whether playback is currently running -- for a platform media session to
+    /// mirror as its playback status so the OS shows and routes its controls.
+    #[must_use]
+    pub fn is_playing(&self) -> bool {
+        self.audio.is_playing()
     }
 
     /// Queues an [`Action`] to run on the next frame, as if the UI had emitted it.

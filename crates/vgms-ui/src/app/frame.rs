@@ -18,6 +18,9 @@ impl VgmStudioApp {
         // UI feeds. Compiled out of release builds.
         #[cfg(any(test, feature = "e2e"))]
         actions.extend(self.e2e_actions.drain(..));
+        // OS media-transport keys posted from outside the UI loop (native SMTC,
+        // web media session) run through the same transport path a button does.
+        actions.extend(self.media_keys.take_actions());
         self.gather_key_input(&ctx, &mut actions);
 
         let active_palette = self.palette();

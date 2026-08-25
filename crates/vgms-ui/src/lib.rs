@@ -17,6 +17,7 @@ pub mod app;
 pub mod dialogs;
 pub mod editor;
 pub mod markers;
+pub mod media;
 pub mod menus;
 pub mod optimize;
 pub mod pack;
@@ -41,6 +42,7 @@ pub use action::AppTab;
 pub use app::VgmStudioApp;
 #[cfg(any(test, feature = "e2e"))]
 pub use app::{E2ePackSnapshot, E2eSnapshot};
+pub use media::{MediaKeys, TransportCommand};
 pub use pack::PackState;
 pub use platform::{
     ArchiveBackend, AudioService, ConfigStore, FileService, OptimizedImage, PackEntry,

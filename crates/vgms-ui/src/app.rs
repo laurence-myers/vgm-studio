@@ -28,6 +28,7 @@ use crate::dialogs::{
 };
 use crate::editor::{Editor, LoadFailure, LoadReport, OptimizeVgmOutcome};
 use crate::markers::RangeMarkers;
+use crate::media::MediaKeys;
 use crate::menus::{self, MenuState};
 use crate::pack::{BulkTagOverlay, PackMutation, PackState, PackTransaction, TrackOptimizeStatus};
 use crate::platform::{
@@ -406,6 +407,10 @@ pub struct VgmStudioApp {
     /// Whether the previous frame was playing, so the frame after playback
     /// ends can display the exact final position.
     was_playing: bool,
+    /// The sink OS media keys (native SMTC / web media session) post transport
+    /// commands into, drained each frame. A default empty sink when no platform
+    /// wires it up.
+    media_keys: MediaKeys,
     /// A file passed on the command line, loaded on the first frame.
     pending_open: Option<PickedFile>,
     /// A file waiting behind the discard-changes prompt; loaded if confirmed.
