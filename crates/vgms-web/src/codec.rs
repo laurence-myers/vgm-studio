@@ -23,8 +23,8 @@ use vgms_core::vgm::ChipKind;
 use vgms_core::{DroSong, VgmFile};
 use vgms_synth::resample::ResampleMode;
 use vgms_synth::{
-    AudioSource, ChipMuting, ChipPanning, CoreChoices, Peak, SplitFormat, VgmRenderMix,
-    VgmSplitOptions, WaveformBucket,
+    AudioSource, ChipMuting, ChipPanning, CoreChoices, LoopConfig, LoopCount, Peak, SplitFormat,
+    VgmRenderMix, VgmSplitOptions, WaveformBucket,
 };
 use vgms_ui::tasks::{
     LoopSearchSource, SplitFiles, SplitSource, SplitTaskSource, TaskResult, WavSource,
@@ -279,6 +279,48 @@ fn read_core_choices(reader: &mut Reader) -> Result<CoreChoices> {
     Ok(choices)
 }
 
+fn write_loop_config(writer: &mut Writer, config: &Option<LoopConfig>) {
+    match config {
+        None => writer.u8(0),
+        Some(config) => {
+            writer.u8(1);
+            writer.u32(config.start as u32);
+            writer.u32(config.end as u32);
+            match config.count {
+                LoopCount::Infinite => writer.u8(0),
+                LoopCount::Times(times) => {
+                    writer.u8(1);
+                    writer.u32(times);
+                }
+            }
+            writer.u64(config.start_frames);
+        }
+    }
+}
+
+fn read_loop_config(reader: &mut Reader) -> Result<Option<LoopConfig>> {
+    match reader.u8("loop-config.tag")? {
+        0 => Ok(None),
+        1 => {
+            let start = reader.u32("loop-config.start")? as usize;
+            let end = reader.u32("loop-config.end")? as usize;
+            let count = match reader.u8("loop-config.count.tag")? {
+                0 => LoopCount::Infinite,
+                1 => LoopCount::Times(reader.u32("loop-config.count.times")?),
+                other => return Err(CodecError::Tag("loop-config.count", other)),
+            };
+            let start_frames = reader.u64("loop-config.start_frames")?;
+            Ok(Some(LoopConfig {
+                start,
+                end,
+                count,
+                start_frames,
+            }))
+        }
+        other => Err(CodecError::Tag("loop-config", other)),
+    }
+}
+
 fn write_resample(writer: &mut Writer, mode: ResampleMode) {
     writer.u8(match mode {
         ResampleMode::Sinc => 0,
@@ -456,6 +498,7 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
             bit_depth,
             resampling,
             core_choices,
+            loop_config,
         } => {
             writer.u8(1);
             // The source keeps its own arm tag -- a DRO projects at render time,
@@ -475,6 +518,7 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
             writer.u16(*bit_depth);
             write_resample(&mut writer, *resampling);
             write_core_choices(&mut writer, core_choices);
+            write_loop_config(&mut writer, loop_config);
         }
         TaskRequest::Split { source } => {
             writer.u8(2);
@@ -589,6 +633,7 @@ pub fn decode_request(input: &[u8]) -> Result<TaskRequest> {
                 bit_depth: reader.u16("bit_depth")?,
                 resampling: read_resample(&mut reader)?,
                 core_choices: read_core_choices(&mut reader)?,
+                loop_config: read_loop_config(&mut reader)?,
             }
         }
         2 => {
@@ -1061,6 +1106,13 @@ mod tests {
                 bit_depth: 24,
                 resampling: ResampleMode::Sinc,
                 core_choices: sample_core_choices(),
+                // A finite loop config, so its Some/Times branches round-trip.
+                loop_config: Some(LoopConfig {
+                    start: 12,
+                    end: 340,
+                    count: LoopCount::Times(9),
+                    start_frames: 44_100,
+                }),
             },
             TaskRequest::RenderWav {
                 source: WavSource::Vgm(sample_vgm()),
@@ -1069,6 +1121,8 @@ mod tests {
                 bit_depth: 16,
                 resampling: ResampleMode::Linear,
                 core_choices: CoreChoices::new(),
+                // The None branch, alongside the empty core map.
+                loop_config: None,
             },
             TaskRequest::Split {
                 source: SplitTaskSource::Vgm {

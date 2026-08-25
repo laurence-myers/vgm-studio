@@ -300,8 +300,9 @@ impl VgmStudioApp {
                 use_toggles,
                 use_panning,
                 boost,
+                use_loop,
                 core_choices,
-            } => self.render_to_wav(use_toggles, use_panning, boost, core_choices),
+            } => self.render_to_wav(use_toggles, use_panning, boost, use_loop, core_choices),
             FileAction::Save => self.save(false),
             FileAction::SaveAs => self.save(true),
             FileAction::SplitSongsPreview { start_index } => self.preview_segment(start_index),
@@ -355,6 +356,7 @@ impl VgmStudioApp {
             let chips = self.document_chips();
             self.dialogs.render_wav = Some(RenderWavDialog::new(
                 self.config.audio.boost,
+                self.loop_enabled,
                 chips,
                 self.config.audio.cores.clone(),
             ));

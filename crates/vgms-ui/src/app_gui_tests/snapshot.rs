@@ -978,12 +978,19 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
     harness.key_press(Key::Escape);
     harness.run();
 
+    let dest = PathBuf::from("C:/out/01 Bios.vgm.wav");
+    handles
+        .files
+        .borrow_mut()
+        .save_paths
+        .push_back(Some(dest.clone()));
     act(
         &mut harness,
         Action::File(FileAction::RenderWavSubmitted {
             use_toggles: false,
             use_panning: false,
             boost: 1.0,
+            use_loop: false,
             core_choices: Default::default(),
         }),
     );
@@ -992,14 +999,15 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
     // The render follows the app's configured output rate, not the file's.
     let rate = harness.state().config.audio.frequency as usize;
     let files = handles.files.borrow();
-    let Some(SaveRequest::Dialog {
-        suggested_name,
-        bytes,
-    }) = files.save_requests.last()
-    else {
-        panic!("expected a save dialog, got {:?}", files.save_requests)
+    // The destination is chosen up front under the CLI's name, then written to.
+    assert_eq!(
+        files.save_path_suggestions.last().map(String::as_str),
+        Some("01 Bios.vgm.wav")
+    );
+    let Some(SaveRequest::InPlace { path, bytes }) = files.save_requests.last() else {
+        panic!("expected an in-place save, got {:?}", files.save_requests)
     };
-    assert_eq!(suggested_name, "01 Bios.vgm.wav");
+    assert_eq!(path, &dest);
     assert!(bytes.starts_with(b"RIFF"), "not a WAV");
 
     // One second of 16-bit stereo, and audible: the header is 44 bytes, and a
@@ -1022,6 +1030,12 @@ fn a_vgm_this_app_has_a_core_for_can_be_rendered_to_a_wav() {
 #[test]
 fn a_generic_render_with_neutral_mix_options_stays_faithful() {
     let (mut harness, handles) = build(Some(sms_vgm_file()), true, false);
+    // One destination per render (the flow asks before each render).
+    handles
+        .files
+        .borrow_mut()
+        .save_paths
+        .extend([Some(PathBuf::from("C:/out/a.wav")), Some(PathBuf::from("C:/out/b.wav"))]);
 
     act(
         &mut harness,
@@ -1029,13 +1043,14 @@ fn a_generic_render_with_neutral_mix_options_stays_faithful() {
             use_toggles: false,
             use_panning: false,
             boost: 1.0,
+            use_loop: false,
             core_choices: Default::default(),
         }),
     );
     harness.run();
     let faithful = {
         let files = handles.files.borrow();
-        let Some(SaveRequest::Dialog { bytes, .. }) = files.save_requests.last() else {
+        let Some(SaveRequest::InPlace { bytes, .. }) = files.save_requests.last() else {
             panic!("expected a faithful render, got {:?}", files.save_requests)
         };
         bytes.clone()
@@ -1047,13 +1062,14 @@ fn a_generic_render_with_neutral_mix_options_stays_faithful() {
             use_toggles: true,
             use_panning: true,
             boost: 1.0,
+            use_loop: false,
             core_choices: Default::default(),
         }),
     );
     harness.run();
     let with_options = {
         let files = handles.files.borrow();
-        let Some(SaveRequest::Dialog { bytes, .. }) = files.save_requests.last() else {
+        let Some(SaveRequest::InPlace { bytes, .. }) = files.save_requests.last() else {
             panic!("the generic render dropped the per-chip mix arm (no WAV saved)")
         };
         bytes.clone()

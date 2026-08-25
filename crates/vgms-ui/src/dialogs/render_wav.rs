@@ -26,6 +26,10 @@ pub struct RenderWavDialog {
     use_panning: bool,
     /// Whether [`Self::boost`] is applied at all.
     use_boost: bool,
+    /// Bake the loop region into the render (an infinite loop is capped to a
+    /// finite number of passes so it terminates). Seeded from the transport's
+    /// loop toggle.
+    use_loop: bool,
     /// Held as text so a half-typed value is not clamped out from under the
     /// user; parsed and range-checked on Render.
     boost: String,
@@ -47,6 +51,7 @@ impl RenderWavDialog {
     #[must_use]
     pub fn new(
         current_boost: f32,
+        loop_enabled: bool,
         chips: Vec<ChipKind>,
         settings_cores: BTreeMap<String, String>,
     ) -> Self {
@@ -54,6 +59,9 @@ impl RenderWavDialog {
             use_toggles: false,
             use_panning: false,
             use_boost: false,
+            // Default to whatever the transport's loop toggle is, so ticking
+            // "render what I'm hearing" needs no extra thought when a loop is on.
+            use_loop: loop_enabled,
             boost: format_boost(current_boost),
             chips,
             cores: settings_cores,
@@ -93,6 +101,13 @@ impl RenderWavDialog {
                     &mut self.use_panning,
                     super::CaptionSide::Row,
                 );
+                super::caption_checkbox(
+                    ui,
+                    "Loop",
+                    crate::strings::RENDER_WAV_LOOP_HOVER,
+                    &mut self.use_loop,
+                    super::CaptionSide::Row,
+                );
 
                 ui.horizontal(|ui| {
                     super::caption_checkbox(
@@ -115,6 +130,7 @@ impl RenderWavDialog {
                     self.use_toggles = true;
                     self.use_panning = true;
                     self.use_boost = true;
+                    self.use_loop = true;
                 }
 
                 core_picker(ui, palette, &self.chips, &mut self.cores);
@@ -152,6 +168,7 @@ impl RenderWavDialog {
             use_toggles: self.use_toggles,
             use_panning: self.use_panning,
             boost,
+            use_loop: self.use_loop,
             core_choices: self.cores.clone(),
         }));
         true
@@ -212,7 +229,7 @@ mod tests {
     /// A dialog for a document with no core-picker seed -- the render options
     /// under test do not touch the picker, which is exercised on its own below.
     fn dialog(boost: f32) -> RenderWavDialog {
-        RenderWavDialog::new(boost, Vec::new(), BTreeMap::new())
+        RenderWavDialog::new(boost, false, Vec::new(), BTreeMap::new())
     }
 
     /// The default is the faithful render `vgmstudio render` produces.
@@ -227,6 +244,7 @@ mod tests {
                 use_toggles: false,
                 use_panning: false,
                 boost: 1.0,
+                use_loop: false,
                 core_choices: BTreeMap::new(),
             })]
         );
@@ -246,6 +264,7 @@ mod tests {
         dialog.use_toggles = true;
         dialog.use_panning = true;
         dialog.use_boost = true;
+        dialog.use_loop = true;
         dialog.boost = "2.5".to_owned();
 
         let mut actions = Vec::new();
@@ -256,6 +275,7 @@ mod tests {
                 use_toggles: true,
                 use_panning: true,
                 boost: 2.5,
+                use_loop: true,
                 core_choices: BTreeMap::new(),
             })]
         );
@@ -267,7 +287,7 @@ mod tests {
     fn the_picker_core_reaches_the_request() {
         // Seed as the constructor would from Settings, then edit as the picker
         // does; the edited map is what the render must carry.
-        let mut dialog = RenderWavDialog::new(1.0, Vec::new(), BTreeMap::new());
+        let mut dialog = RenderWavDialog::new(1.0, false, Vec::new(), BTreeMap::new());
         dialog.cores.insert("opl3".to_owned(), "cqm".to_owned());
 
         let mut actions = Vec::new();

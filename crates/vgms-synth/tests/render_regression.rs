@@ -123,6 +123,7 @@ fn render(muting: Muting, panning: Panning, boost: f32) -> Vec<u8> {
         BIT_DEPTH,
         &mix,
         ResampleMode::Sinc,
+        None,
         &mut |_| {},
         &mut || true,
     )

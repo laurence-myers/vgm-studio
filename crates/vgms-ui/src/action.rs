@@ -130,6 +130,10 @@ pub enum FileAction {
         use_toggles: bool,
         use_panning: bool,
         boost: f32,
+        /// Bake the loop region into the render, repeating it as playback would.
+        /// An infinite loop is capped to a finite number of passes so the render
+        /// terminates.
+        use_loop: bool,
         /// The per-render core choices the dialog's picker settled on, seeded
         /// from Settings and never persisted. Empty means the configured cores.
         core_choices: std::collections::BTreeMap<String, String>,

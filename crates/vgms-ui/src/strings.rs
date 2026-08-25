@@ -706,6 +706,7 @@ pub(crate) const RENDER_WAV_APPLY: &str = "Apply to the render:";
 pub(crate) const RENDER_WAV_TOGGLES_HOVER: &str =
     "Leave out the channels muted in the channel panel";
 pub(crate) const RENDER_WAV_PANNING_HOVER: &str = "Place each channel where its pan knob is set";
+pub(crate) const RENDER_WAV_LOOP_HOVER: &str = "Repeat the loop region as playback would; an endless loop is capped to a finite number of passes";
 pub(crate) const RENDER_WAV_BOOST_HOVER: &str = "Drive the signal through the peak limiter";
 pub(crate) const RENDER_WAV_FREQ_NOTE: &str = "Frequency and bit depth: see Settings.";
 pub(crate) const RENDER_WAV_INVALID_TITLE: &str = "Invalid boost";

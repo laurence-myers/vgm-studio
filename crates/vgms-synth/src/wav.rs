@@ -13,6 +13,7 @@ use std::io::Cursor;
 use hound::{SampleFormat, WavSpec, WavWriter};
 
 use crate::chip_mix::{ChipMuting, ChipPanning};
+use crate::clock::LoopConfig;
 use crate::resample::ResampleMode;
 use std::sync::Arc;
 
@@ -73,6 +74,8 @@ pub fn render_vgm_wav_cancellable(
         bit_depth,
         &mix,
         resampling,
+        // The unmixed convenience never loops -- a single linear pass, as before.
+        None,
         on_progress,
         keep_going,
     )
@@ -106,14 +109,22 @@ impl Default for VgmRenderMix {
 /// the render -- what the GUI's toggles and knobs export, and what the
 /// per-channel split renders each solo through.
 ///
+/// `loop_config` bakes the loop region in when `Some`, so the WAV repeats it as
+/// playback would. It **must be finite** ([`LoopCount::Times`](crate::LoopCount)),
+/// never `Infinite`, or the render never ends -- the caller caps it.
+///
 /// # Errors
 /// See [`render_vgm_wav`].
+// Eight small, distinct render parameters (source, rate, depth, mix, resampling,
+// loop, and the two callbacks); a bag struct would only rename them.
+#[allow(clippy::too_many_arguments)]
 pub fn render_vgm_wav_mixed_cancellable(
     file: Arc<VgmFile>,
     sample_rate: u32,
     bit_depth: u16,
     mix: &VgmRenderMix,
     resampling: ResampleMode,
+    loop_config: Option<LoopConfig>,
     on_progress: &mut dyn FnMut(u64),
     keep_going: &mut dyn FnMut() -> bool,
 ) -> Result<Option<Vec<u8>>, hound::Error> {
@@ -127,6 +138,9 @@ pub fn render_vgm_wav_mixed_cancellable(
     // The render honours the same choice playback does: a user who picked the
     // crunchy conversion exports the sound they hear, not a cleaned-up cousin.
     engine.set_resample_mode(resampling);
+    // A finite loop repeats the region into the render; None is a single linear
+    // pass (the default, byte-identical to before).
+    engine.set_loop(loop_config);
     // Only when they say something: the faithful render stays exactly the
     // engine's own output, mirroring the OPL render's `Panning::Original`
     // rule.

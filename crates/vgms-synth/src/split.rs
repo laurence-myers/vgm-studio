@@ -266,6 +266,8 @@ fn render_channel_wav(
         options.audio.bit_depth,
         &mix,
         options.resampling,
+        // A per-channel split is a single linear pass; it never loops.
+        None,
         &mut |frames| on_progress(name, frames),
         keep_going,
     )

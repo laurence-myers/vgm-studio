@@ -6,6 +6,7 @@ impl VgmStudioApp {
         use_toggles: bool,
         use_panning: bool,
         boost: f32,
+        use_loop: bool,
         core_choices: std::collections::BTreeMap<String, String>,
     ) {
         let Some(source) = self.editor.doc_source() else {
@@ -37,6 +38,10 @@ impl VgmStudioApp {
             },
             boost,
         };
+        // Bake the loop region in when asked, capping an endless loop to a finite
+        // number of passes so the render terminates. Built from the same markers
+        // and count the transport loops by, at the render's own rate.
+        let loop_config = use_loop.then(|| self.render_loop_config()).flatten();
         // `song.dro` becomes `song.dro.wav`, the name `vgmstudio render` writes.
         let suggested_name = format!("{}.wav", source.name());
         // Ask where to save *before* rendering: a cancelled dialog wastes nothing,
@@ -49,6 +54,7 @@ impl VgmStudioApp {
             bit_depth: self.config.audio.bit_depth,
             resampling: self.resample_mode(),
             core_choices,
+            loop_config,
         };
         self.render_flow = Some(RenderWavFlow::AwaitingPath(Box::new(request)));
         self.files.pick_save_path(suggested_name);
@@ -71,6 +77,35 @@ impl VgmStudioApp {
             None => {
                 self.status = crate::strings::APP_MSG_SAVE_CANCELLED.to_owned();
             }
+        }
+    }
+
+    /// The loop region to bake into a Render to WAV: the same markers and count
+    /// the transport loops by, at the render's own rate, but with an endless loop
+    /// capped to a finite number of passes so the export terminates.
+    fn render_loop_config(&self) -> Option<LoopConfig> {
+        let markers = self.editor.markers;
+        let rate = self.config.audio.frequency;
+        let count = match self.loop_count {
+            LoopCount::Infinite => LoopCount::Times(loop_stepper::MAX_FINITE),
+            finite => finite,
+        };
+        match (self.editor.dro_song(), self.editor.vgm()) {
+            (Some(song), _) => Some(LoopConfig::for_song(
+                song,
+                markers.start(),
+                markers.end(),
+                count,
+                rate,
+            )),
+            (None, Some(file)) => Some(LoopConfig::for_vgm(
+                file,
+                markers.start(),
+                markers.end(),
+                count,
+                rate,
+            )),
+            (None, None) => None,
         }
     }
 

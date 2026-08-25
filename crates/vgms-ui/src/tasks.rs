@@ -81,6 +81,10 @@ pub enum TaskRequest {
         /// core is used without disturbing playback. Empty means the configured
         /// cores, keeping the default render byte-identical.
         core_choices: CoreChoices,
+        /// The loop region to bake in, or `None` for a single linear pass. When
+        /// `Some` it is always finite (the caller caps an infinite loop), so the
+        /// render terminates.
+        loop_config: Option<vgms_synth::LoopConfig>,
     },
     Split {
         source: SplitTaskSource,
@@ -324,6 +328,7 @@ pub fn run_task(
             bit_depth,
             resampling,
             core_choices,
+            loop_config,
         } => {
             // `song.dro` becomes `song.dro.wav`, the name `vgmstudio render`
             // writes -- so the same song exported both ways lands in one place.
@@ -341,6 +346,7 @@ pub fn run_task(
                     *bit_depth,
                     mix,
                     *resampling,
+                    *loop_config,
                     &mut |_| {},
                     &mut || !is_cancelled(),
                 ))
@@ -800,6 +806,7 @@ mod tests {
             bit_depth: 16,
             resampling: vgms_synth::resample::ResampleMode::Sinc,
             core_choices: CoreChoices::new(),
+            loop_config: None,
         };
         assert!(collect(&wav, || true).is_empty());
 
@@ -837,6 +844,7 @@ mod tests {
             16,
             &mix,
             vgms_synth::resample::ResampleMode::Sinc,
+            None,
             &mut |_| {},
             &mut || true,
         )
@@ -851,6 +859,7 @@ mod tests {
                 bit_depth: 16,
                 resampling: vgms_synth::resample::ResampleMode::Sinc,
                 core_choices: CoreChoices::new(),
+                loop_config: None,
             },
             || false,
         );

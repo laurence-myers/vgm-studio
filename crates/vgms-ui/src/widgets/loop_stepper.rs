@@ -11,8 +11,9 @@ use vgms_synth::LoopCount;
 use crate::action::{Action, LoopAction};
 use crate::theme::{self, Palette};
 
-/// The highest finite count the stepper offers before "without end".
-const MAX_FINITE: u32 = 9;
+/// The highest finite count the stepper offers before "without end". Also the
+/// cap a Render to WAV puts on an endless loop, so the export always terminates.
+pub(crate) const MAX_FINITE: u32 = 9;
 
 /// Draws the stepper: down arrow, the current count, up arrow. Emits
 /// [`LoopAction::SetCount`] on a change.
