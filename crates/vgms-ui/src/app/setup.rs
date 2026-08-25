@@ -43,6 +43,7 @@ impl VgmStudioApp {
             peak_meter: PeakMeterState::default(),
             boost_ceiling: None,
             volume_scan_purpose: VolumeScanPurpose::MatchBoost,
+            last_measured_peak: None,
             volume_field_editing: false,
             position: PositionPanel::new(initial_frequency),
             channels: ChipPanels::new(),

@@ -163,7 +163,11 @@ impl VgmStudioApp {
             return;
         }
         // Metadata lives in the VGM header; a DRO has none.
-        let dialog = self.editor.vgm().and_then(VgmMetadataDialog::for_vgm);
+        let measured = self.last_measured_peak;
+        let dialog = self
+            .editor
+            .vgm()
+            .and_then(|file| VgmMetadataDialog::for_vgm(file, measured));
         match dialog {
             Some(dialog) => self.dialogs.vgm_metadata = Some(dialog),
             None => self.status = crate::strings::APP_STATUS_NOT_VGM.to_owned(),

@@ -37,6 +37,8 @@ impl VgmStudioApp {
                 // A new song starts with no clipping ceiling; its own limiter has
                 // not engaged yet.
                 self.boost_ceiling = None;
+                // A peak measured for the previous song must not be offered here.
+                self.last_measured_peak = None;
                 self.audio_revision = None;
                 self.was_playing = false;
                 self.last_first_selected = None;
@@ -127,6 +129,7 @@ impl VgmStudioApp {
         self.waveform = WaveformState::default();
         self.peak_meter = PeakMeterState::default();
         self.boost_ceiling = None;
+        self.last_measured_peak = None;
         self.position.set_length_ms(0);
         self.position.set_position_ms(0);
         self.last_first_selected = None;

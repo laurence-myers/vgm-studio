@@ -736,6 +736,8 @@ pub(crate) fn find_loop_quality_help(shape: &str, match_len: usize) -> String {
 
 pub(crate) const VGM_METADATA_MEASURE_HINT: &str =
     "Measure the song's peak and suggest a modifier that brings it to full scale";
+pub(crate) const VGM_METADATA_FROM_MEASURED_HINT: &str =
+    "Fill the modifier from the volume already measured in the editor, without re-scanning";
 pub(crate) const VGM_METADATA_INVALID_TITLE: &str = "Invalid VGM metadata";
 pub(crate) const VGM_METADATA_LOOP_END_AFTER_START: &str =
     "Loop end must come after the loop start.";

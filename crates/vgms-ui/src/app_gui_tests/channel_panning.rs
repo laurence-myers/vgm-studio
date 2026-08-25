@@ -688,7 +688,7 @@ fn measuring_the_modifier_routes_the_peak_to_the_open_dialog() {
     harness.state_mut().editor.convert_to_vgm().unwrap();
     let vgm = harness.state().editor.vgm().unwrap().clone();
     harness.state_mut().dialogs.vgm_metadata =
-        Some(crate::dialogs::VgmMetadataDialog::for_vgm(&vgm).unwrap());
+        Some(crate::dialogs::VgmMetadataDialog::for_vgm(&vgm, None).unwrap());
 
     // Trigger the Measure scan; the inline scan stores its Peak, then a poll frame
     // routes it to the open dialog (the same delivery shape as Match Volume).
@@ -706,6 +706,21 @@ fn measuring_the_modifier_routes_the_peak_to_the_open_dialog() {
         harness.state().status.contains("volume modifier"),
         "status was {:?}",
         harness.state().status
+    );
+
+    // The peak is also retained at app level, so a later open of the header
+    // dialog can populate its boost via "From measured" without re-scanning.
+    assert!(
+        harness.state().last_measured_peak.is_some(),
+        "the scan's peak is kept for reuse"
+    );
+
+    // Closing the song drops the retained peak so it is never offered for the next.
+    act(&mut harness, Action::File(FileAction::Close));
+    harness.run();
+    assert!(
+        harness.state().last_measured_peak.is_none(),
+        "closing clears the retained peak"
     );
 }
 

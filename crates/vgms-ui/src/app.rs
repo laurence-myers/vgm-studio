@@ -332,6 +332,11 @@ pub struct VgmStudioApp {
     /// use one [`TaskKind::VolumeScan`], and submitting cancels the other, so a
     /// single value tracks the live purpose.
     volume_scan_purpose: VolumeScanPurpose,
+    /// The peak from the most recent volume scan for the current song, kept
+    /// whatever the scan was for (a "Match" to the lever or a header "Measure"),
+    /// so the VGM header dialog can populate its volume boost from it without a
+    /// fresh scan. Cleared on load/close so a stale peak is never offered.
+    last_measured_peak: Option<vgms_synth::Peak>,
     /// Whether the transport's volume field held keyboard focus as of the last
     /// frame, reported by the lever via [`MixerAction::VolumeFieldFocused`]. While it
     /// does, [`Self::gather_key_input`] stands the editor shortcuts down so typed

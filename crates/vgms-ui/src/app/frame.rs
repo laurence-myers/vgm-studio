@@ -811,6 +811,9 @@ impl VgmStudioApp {
     /// volume lever (the "Match" button) or the VGM dialog's volume-modifier field
     /// (the "Measure" button).
     pub(super) fn handle_volume_scan(&mut self, peak: vgms_synth::Peak) {
+        // Keep the peak whatever the scan was for, so the VGM header dialog can
+        // populate its volume boost from an earlier "Match" without re-scanning.
+        self.last_measured_peak = Some(peak);
         match self.volume_scan_purpose {
             VolumeScanPurpose::MatchBoost => {
                 if peak.max_level == 0 {

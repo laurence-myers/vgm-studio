@@ -56,7 +56,7 @@ impl VgmMetadataDialog {
     /// itself and whose row times come from its own waits. (A DRO carries no VGM
     /// metadata, so there is no `DroSong`-based constructor.)
     #[must_use]
-    pub fn for_vgm(file: &vgms_core::VgmFile) -> Option<Self> {
+    pub fn for_vgm(file: &vgms_core::VgmFile, measured: Option<vgms_synth::Peak>) -> Option<Self> {
         let stream = file.stream()?;
         let mut prefix = Vec::with_capacity(stream.len() + 1);
         let mut elapsed = 0u32;
@@ -65,7 +65,7 @@ impl VgmMetadataDialog {
             elapsed = elapsed.saturating_add(stream.wait_samples(index));
             prefix.push(elapsed);
         }
-        Some(Self::from_fields(
+        let mut dialog = Self::from_fields(
             file.loop_index(),
             file.loop_end_index(),
             file.header.loop_base(),
@@ -73,7 +73,12 @@ impl VgmMetadataDialog {
             file.header.volume_modifier(),
             stream.len(),
             prefix,
-        ))
+        );
+        // Seed the last measurement (an editor "Match" or a prior "Measure") so
+        // the readout and the "From measured" button light up without a re-scan.
+        // The header's own saved modifier is left as-is; only a button press fills.
+        dialog.measured = measured;
+        Some(dialog)
     }
 
     fn from_fields(
@@ -101,8 +106,16 @@ impl VgmMetadataDialog {
     /// measured `peak` to full scale, and remembers the peak for the readout.
     /// Called by the app when a "Measure" scan lands.
     pub fn apply_measured_peak(&mut self, peak: vgms_synth::Peak) {
-        self.volume_modifier = vgms_core::suggest_volume_modifier(peak.max_level, None).to_string();
+        self.set_modifier_from_peak(peak);
         self.measured = Some(peak);
+    }
+
+    /// Fills the modifier byte with the one that lifts `peak` to full scale,
+    /// without touching the stored measurement. Shared by the "Measure" scan
+    /// (which then stores the peak) and the "From measured" button (which reuses
+    /// the peak already stored).
+    fn set_modifier_from_peak(&mut self, peak: vgms_synth::Peak) {
+        self.volume_modifier = vgms_core::suggest_volume_modifier(peak.max_level, None).to_string();
     }
 
     /// The "= N.NNx" gloss beside the volume-modifier field: what factor the
@@ -176,8 +189,11 @@ impl VgmMetadataDialog {
                             ui.end_row();
                         }
 
-                        // Volume modifier gets a "Measure" button that fills it from
-                        // the song's peak, and a live gloss of what the byte means.
+                        // Volume modifier gets a "Measure" button that scans and
+                        // fills it from the song's peak, a "From measured" button
+                        // that reuses a peak already measured (in the editor or a
+                        // prior scan) without re-scanning, and a live gloss of what
+                        // the byte means.
                         ui.label("Volume modifier:");
                         ui.horizontal(|ui| {
                             super::text_field(ui, palette, &mut self.volume_modifier, 70.0);
@@ -187,6 +203,15 @@ impl VgmMetadataDialog {
                             {
                                 actions.push(Action::Mixer(MixerAction::MeasureVolumeModifier));
                             }
+                            ui.add_enabled_ui(self.measured.is_some(), |ui| {
+                                if bevel::button(ui, palette, "From measured")
+                                    .on_hover_text(crate::strings::VGM_METADATA_FROM_MEASURED_HINT)
+                                    .clicked()
+                                    && let Some(peak) = self.measured
+                                {
+                                    self.set_modifier_from_peak(peak);
+                                }
+                            });
                             ui.label(self.volume_modifier_readout());
                         });
                         ui.end_row();
@@ -429,6 +454,23 @@ mod tests {
                 ..
             })]
         ));
+    }
+
+    #[test]
+    fn from_measured_fills_the_byte_from_a_seeded_peak() {
+        // for_vgm seeds `measured` from the app's last measurement; the "From
+        // measured" button reuses it with no fresh scan.
+        let mut dialog = dialog();
+        dialog.measured = Some(vgms_synth::Peak {
+            max_level: 0x4000, // half scale -> +6 dB = 0x20 = 32
+            clipped: false,
+        });
+        dialog.set_modifier_from_peak(dialog.measured.expect("seeded"));
+        assert_eq!(dialog.volume_modifier, "32");
+        assert!(
+            dialog.measured.is_some(),
+            "the stored peak is left in place"
+        );
     }
 
     #[test]
