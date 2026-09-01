@@ -183,12 +183,12 @@ The 1500-file stride reached 86 chip configurations covering **38 of the 42
 chips**. The four it missed were then swept individually with
 `VGMSTUDIO_CHIP_FILTER`, which scans the corpus end to end for one chip:
 
-| Chip | Result |
+| Filter | Result |
 |---|---|
-| POKEY | **30 files, 0 changed** — measured |
-| SCSP | no files in the corpus (no Saturn tree in this mirror) |
-| Mikey | no files in the corpus (no Lynx tree) |
-| ES5505/ES5506 | no files in the corpus |
+| `POKEY` | **30 files, 0 changed** — measured |
+| `ES550` | no ES5505/ES5506 files at all; matched the **ES5503** instead, and swept **145 files, 0 changed** — far deeper than the stride's single file |
+| `SCSP` | no files in the corpus (no Saturn tree in this mirror) |
+| `Mikey` | no files in the corpus (no Lynx tree) |
 
 So three chips are **classified but unmeasurable here**, and their rules are
 reasoned rather than checked. The SCSP's is the boldest — it dedupes everything
