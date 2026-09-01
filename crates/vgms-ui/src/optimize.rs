@@ -5,11 +5,13 @@
 //! byte-minimal delay re-encoding comes from. They run as child processes, so
 //! they cannot come to the web.
 //!
-//! On wasm the same action still works; it just reaches the three chips
-//! `vgms_core` has rules for rather than the thirty `vgm_cmp` does. That is a
-//! smaller answer, never a wrong one -- the built-in pass drops nothing from a
-//! chip it has no rules for. `docs/vgm-multichip-2026-07/OPTIMIZER-WASM-PLAN.md`
-//! is how the web catches up.
+//! On wasm the same action still works. Its write dedup is the same one the
+//! desktop uses -- `vgms_core` now classifies every chip the format defines --
+//! so what the web is missing is the two tools that do work the built-in does
+//! not: `optdac`'s DAC-run collapsing and `vgm_sro`'s sample-ROM trimming.
+//! That is a smaller answer, never a wrong one.
+//! `docs/vgm-multichip-2026-07/OPTIMIZER-WASM-PLAN.md` is how the web catches
+//! up.
 //!
 //! Both arms take and return whole-file bytes, so the caller does not have to
 //! know which one it got.

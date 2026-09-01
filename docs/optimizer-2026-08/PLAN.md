@@ -1,7 +1,8 @@
 # Built-in optimiser as the primary VGM compressor
 
 **Branch:** `optimizer-investigation` (this programme) · **Status:** parts 1 + 2
-implemented; part 3 deferred.
+implemented; **part 3a done 2026-09** on `builtin-optimizer-coverage-2026-09`
+(see `docs/optimizer-coverage-2026-09/REPORT.md`); part 3b still deferred.
 
 ## Why
 
@@ -35,6 +36,11 @@ per-chip expansion that would let the tools be retired entirely.
   optimiser that only drops truly-redundant writes renders *identically* to the
   original — which is why an unoptimised-vs-optimised render diff is a real state
   change, not a phase artifact, and is the correct safety oracle.
+
+> **Since part 3a (2026-09):** the rules moved out of `chip_state::latch_rule`
+> into `crates/vgms-core/src/redundancy.rs`, which classifies every chip the
+> format defines. The OPN commit latch is modelled there and the YM2612 rule is
+> live again — so the "root cause" citation above is history, not current code.
 
 ## Corpus
 
@@ -113,21 +119,27 @@ built-in for covered files and tools for the rest.
 **Exit:** the choice is settable, honoured on every optimise path, and covered by
 a UI test.
 
-### Deferred — Part 3: complete the built-in's chip coverage
+### Part 3: complete the built-in's chip coverage
 
-Expand `latch_rule` / the built-in to each chip the fallback still needs, each
-admitted only when Stage 1's gate passes it, in priority order from the size gap:
+Expand the built-in to each chip the fallback still needs, each admitted only
+when Stage 1's gate passes it, in priority order from the size gap:
 
-- **3a — the `vgm_cmp` chips**, YM2612 first (model the OPN `0xA4→0xA0` commit
-  latch the way `vgm_cmp`'s look-ahead does, recovering full YM2612 compression
-  and moving Mega Drive off the buggy tool), then SN76489 (mind the noise-shifter
-  reset), the OPN2/OPM/OPNA/OPL variants, etc.
+- **3a — the `vgm_cmp` chips. Done 2026-09**, and further than planned: every
+  chip the format defines is classified in `crates/vgms-core/src/redundancy.rs`,
+  so `Auto` no longer routes any file to `vgm_cmp` for its write dedup. The OPN
+  `0xA4`→`0xA0` commit latch is modelled (as a chip-wide latch group rather than
+  the look-ahead `vgm_cmp` uses), the SN76489's noise-shifter reset is kept, and
+  the SAA1099 and Game Boy get the rules upstream never finished. Report:
+  `docs/optimizer-coverage-2026-09/REPORT.md`.
 - **3b — the PCM compressors:** `optdac` (YM2612 DAC-run collapse) first, then the
   sample-ROM trims (`vgm_sro`, per-chip behind the gate as
   `which_chips_the_sample_rom_trim_is_safe_for` already vets).
+  **Still deferred**, and now the *only* thing keeping the tools: after 3a the
+  pipeline runs `optdac` and `vgm_sro` on their own applicability (a YM2612, a
+  ROM-image block) rather than on chip coverage, because they do work the
+  built-in does not do at all.
 
-When coverage is complete the external tools — and the `vgm_cmp` YM2612 bug — are
-retired.
+When 3b lands the external tools — and the `vgm_cmp` YM2612 bug — are retired.
 
 ## Gating discipline
 

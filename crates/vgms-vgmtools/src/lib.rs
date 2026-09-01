@@ -3,18 +3,23 @@
 //!
 //! # Why this crate exists
 //!
-//! `vgms_core` optimises three chips; each redundancy rule has to be checked,
-//! because a register that *triggers* on write rather than latching makes the
-//! generic "same value, drop it" rule silently, audibly wrong. vgmtools has
-//! spent two decades accumulating that table for some thirty chips, along with
-//! `vgm_sro`'s sample-ROM decoders. So this crate runs the original instead,
-//! and equivalence stops being something to test.
+//! `vgms_core` classifies every chip the format defines, so the *write dedup*
+//! this crate was first borrowed for now has an in-house peer. What has no peer
+//! is the rest of the toolchain: `vgm_sro`'s sample-ROM decoders, which replay
+//! a file's writes through two dozen cut-down chip models to work out which ROM
+//! bytes are reachable, and `optdac`'s DAC-run collapsing. Re-implementing
+//! those is a much larger job than a redundancy table, so this crate runs the
+//! originals, and equivalence stops being something to test.
+//!
+//! `vgm_cmp` stays for the A/B control and as the fallback the routing can
+//! still reach for -- see `pipeline`.
 //!
 //! # Licence
 //!
 //! vgmtools is GPL-2.0. This crate is therefore GPL-2.0-or-later and only the
-//! copyleft half of the workspace links it: `vgms-ui` and `vgms-app`.
-//! `vgms-core` and `vgms-synth` stay MIT OR Apache-2.0 and never depend on it.
+//! copyleft half of the workspace links it: `vgms-ui`, `vgms-app` and
+//! `vgms-web`. `vgms-core` and `vgms-synth` stay MIT OR Apache-2.0 and never
+//! depend on it.
 //!
 //! # Two shapes, one crate
 //!

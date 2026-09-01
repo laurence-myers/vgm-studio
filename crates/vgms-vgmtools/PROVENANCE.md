@@ -44,18 +44,22 @@ tests plus the corpus render parity.
 
 ## Why bind rather than re-implement
 
-`vgms_core::chip_state::latch_rule` optimises three chips, and its doc comment
-explains the discipline: a chip earns a redundancy rule by being checked,
-because a register that *triggers* on write rather than latching makes the
-generic "same value, drop it" rule audibly wrong, and the failure is silent --
-the file gets smaller and plays wrong.
+`vgms_core::redundancy` explains the discipline: a chip earns a redundancy rule
+by being checked, because a register that *triggers* on write rather than
+latching makes the generic "same value, drop it" rule audibly wrong, and the
+failure is silent -- the file gets smaller and plays wrong.
 
 `chip_cmp.c` is two decades of exactly that checking, for about thirty chips:
 key-ons that re-attack, counters that reload, addresses the chip itself moves
 during playback, masked compares, forward lookahead to prove a write is a dead
-no-op. `chip_srom.c` is twenty-six more chip models for the ROM trim.
-Re-spelling either in Rust would mean re-deriving every one of those
-judgements, and getting one wrong is inaudible in a test and audible in a pack.
+no-op. It is the source `vgms_core::redundancy` was written *from*, chip by
+chip and stricter wherever upstream is known to be wrong, and it is still what
+the `Tools` setting runs as the A/B control.
+
+`chip_srom.c` is twenty-six more chip models, for the ROM trim, and has no
+in-house peer at all. Re-spelling it in Rust would mean re-deriving every one
+of those judgements about which ROM bytes a write history can reach, and
+getting one wrong is inaudible in a test and audible in a pack.
 
 So we run the originals, and equivalence stops being something to verify.
 
