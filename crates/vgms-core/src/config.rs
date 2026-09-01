@@ -310,15 +310,18 @@ impl core::str::FromStr for ThemeChoice {
 /// as `optimizer=` in `[optimize]`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum OptimizerChoice {
-    /// The built-in optimiser for a file whose every chip it covers, the
-    /// external vgmtools (`vgm_cmp`, `vgm_sro`, `optdac`) as the fallback for
-    /// the rest. The recommended default.
+    /// The built-in optimiser for the write dedup, with the external vgmtools
+    /// behind it for the two jobs it does not do -- `optdac`'s DAC-run collapse
+    /// and `vgm_sro`'s sample-ROM trim, each run only when the file has
+    /// something for it. `vgm_cmp` is the write-dedup fallback, which since the
+    /// built-in learned every chip the format defines means a file whose header
+    /// names no chip or cannot be read. The recommended default.
     #[default]
     Auto,
-    /// The built-in optimiser only -- never spawn the external tools. A chip the
-    /// built-in has no rules for gets only its (safe) delay-merge, not the
-    /// tools' redundancy pass. What the web build uses, and a minimal-dependency
-    /// desktop option.
+    /// The built-in optimiser only -- never spawn the external tools, so a file
+    /// gets the write dedup and the delay merge but no DAC or sample-ROM
+    /// cleanup. What the web build uses, and a minimal-dependency desktop
+    /// option.
     BuiltInOnly,
     /// The external vgmtools always, whatever the file -- the original behaviour,
     /// kept as an A/B control against the built-in.
