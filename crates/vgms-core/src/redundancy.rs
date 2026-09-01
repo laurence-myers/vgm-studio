@@ -42,10 +42,16 @@
 //! (the SAA1099 fallthrough, the Game Boy's unconditional keep, the YM3812
 //! waveform flush that never runs, the YM2608 prescaler compare that never
 //! assigns) this module is stricter, never looser: it keeps writes upstream
-//! drops rather than the other way round. Everything here is then checked
-//! against the corpus by `the_builtin_optimizer_never_changes_audio`, which
-//! renders every file before and after and requires the samples to be
-//! byte-identical.
+//! drops rather than the other way round.
+//!
+//! Everything here is then checked against the corpus by
+//! `the_builtin_optimizer_never_changes_audio`, which renders every file before
+//! and after and requires the samples to be byte-identical. **Three chips it
+//! cannot check**: the corpus mirror holds no SCSP, Mikey or ES5505 material at
+//! all, so their rules are reasoned rather than measured. On the interactive
+//! paths the per-file render gate still stands behind them; on the unverified
+//! paths they are the three worth doubting first if a file ever comes back
+//! wrong. See `docs/optimizer-coverage-2026-09/REPORT.md`.
 
 use std::collections::BTreeMap;
 

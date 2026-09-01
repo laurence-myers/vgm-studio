@@ -180,14 +180,23 @@ one thing the old wording could not say honestly.
 ## What the corpus actually exercised
 
 The 1500-file stride reached 86 chip configurations covering **38 of the 42
-chips**. Four were never rendered, so their rules are classified but
-*unmeasured*: **ES5505/ES5506, Mikey, POKEY and SCSP**. Of those, the ES5505's
-page model and the SCSP's (which dedupes everything but each slot's control word
-and the common block, where `vgm_cmp` dedupes nothing at all) are the two bold
-enough to want a measurement before they are trusted.
+chips**. The four it missed were then swept individually with
+`VGMSTUDIO_CHIP_FILTER`, which scans the corpus end to end for one chip:
 
-`VGMSTUDIO_CHIP_FILTER=SCSP` scans the whole corpus for one chip and is how to
-get it; the sweep's own stride is what missed them.
+| Chip | Result |
+|---|---|
+| POKEY | **30 files, 0 changed** — measured |
+| SCSP | no files in the corpus (no Saturn tree in this mirror) |
+| Mikey | no files in the corpus (no Lynx tree) |
+| ES5505/ES5506 | no files in the corpus |
+
+So three chips are **classified but unmeasurable here**, and their rules are
+reasoned rather than checked. The SCSP's is the boldest — it dedupes everything
+but each slot's control word and the common block, where `vgm_cmp` dedupes
+nothing at all — followed by the ES5505's page model. On the interactive paths
+the per-file render gate still stands behind them; on the unverified paths they
+are the three to doubt first if a file ever comes back wrong. The module says
+so at the top, so the next person does not have to rediscover it.
 
 ## Known consequences and what is still open
 
