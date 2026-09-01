@@ -20,6 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use vgms_core::vgm::VgmFile;
+use vgms_synth::registry::{CoreChoices, with_render_choices};
 use vgms_synth::vgm_engine::VgmEngine;
 
 mod common;
@@ -29,8 +30,42 @@ const OUTPUT_RATE: u32 = 44_100;
 /// sweep a corpus with five renders per file.
 const FRAMES: usize = 44_100 * 4;
 
+/// The cores the gate must render through, where the shipping default makes the
+/// *number* of writes observable and so cannot answer the gate's question.
+///
+/// Four chips are promoted to a Nuked core in `register_common_cores` -- the
+/// YM2612, YM2151, YM2413 and SN76489 -- and all four wrappers pace their
+/// writes: a `vgms_synth::WriteQueue` for the three FM parts, a byte queue with
+/// its own settle for the PSG die trace. Each releases one write per settling
+/// period, because that is what the real chip's busy flag does. Drop a write
+/// from a zero-delay burst and every write behind it reaches the chip earlier,
+/// so an optimiser that removed nothing but genuinely redundant writes still
+/// renders differently. The gate's oracle ("a difference is a dropped write
+/// that mattered") stops holding, and no optimiser -- ours or `vgm_cmp`'s --
+/// could ever pass on those four.
+///
+/// libvgm's cores apply writes the instant they arrive, as the YM2608's and
+/// YM2610's do, so they answer the question the gate is asking. The
+/// substitution is measured, not assumed: `opn_write_pacing.rs` renders the same
+/// optimised files both ways and finds Nuked differing on 22 of 24 files where
+/// the immediate-write core differs on none.
+///
+/// This does *not* soften the gate. A dropped write that really mattered
+/// changes an immediate-write core's output too -- which is exactly how the
+/// chip-wide OPN F-number latch bug was caught, on the YM2608 and YM2610, and
+/// the Game Boy's mixer registers on SameBoy: none of those cores are paced.
+fn gate_cores() -> CoreChoices {
+    CoreChoices::from([
+        ("ym2612".to_owned(), "libvgm".to_owned()),
+        ("ym2151".to_owned(), "libvgm".to_owned()),
+        ("ym2413".to_owned(), "libvgm".to_owned()),
+        ("sn76489".to_owned(), "libvgm".to_owned()),
+    ])
+}
+
 fn render_file(file: &VgmFile) -> Vec<i16> {
     let mut engine = VgmEngine::new(Arc::new(file.clone()), OUTPUT_RATE);
+    engine.set_immediate_writes(true);
     let mut out = vec![0i16; FRAMES * 2];
     let mut done = 0usize;
     while done < FRAMES {
@@ -113,10 +148,15 @@ impl Tally {
 
 /// THE GATE (s1-1): the built-in optimiser must never change what a file plays,
 /// on any chip. Renders every corpus file unoptimised and built-in-optimised and
-/// requires them byte-identical -- valid because `VgmEngine` applies writes
-/// immediately at wait-boundaries, so a difference is a real state change, not a
-/// phase artifact. Fails, naming the chip, if the built-in drops a write that
-/// matters. This is what decides the built-in's safe coverage (D-opt-1/2).
+/// requires them byte-identical, so a difference is a real state change rather
+/// than a phase artifact. Fails, naming the chip, if the built-in drops a write
+/// that matters. This is what decides the built-in's safe coverage (D-opt-1/2).
+///
+/// Two things make "a difference is a real state change" true, and both are
+/// deliberate: [`gate_cores`] replaces the cores whose *wrapper* queues writes,
+/// and `set_immediate_writes` turns off the write spreading the OPL adapter does
+/// inside `VgmEngine`. Without them the gate measures write *delivery timing*,
+/// which no optimiser can preserve and none needs to.
 #[test]
 #[ignore = "gate, needs VGMSTUDIO_VGMRIPS_CORPUS; run explicitly"]
 fn the_builtin_optimizer_never_changes_audio() {
@@ -185,11 +225,13 @@ fn the_builtin_optimizer_never_changes_audio() {
         // The built-in changed the file, so any render difference is its doing.
         // Every core renders deterministically (see `vgms_cores_libvgm`'s
         // `rng`), so a diff is a dropped write that mattered, never the core's
-        // own reset noise.
-        let original = render_file(&file);
-        if let Some(rendered) = render_bytes(&name, &optimized)
-            && let Some((first, peak)) = difference(&original, &rendered)
-        {
+        // own reset noise -- provided the core does not make the write *count*
+        // observable, which is what `gate_cores` is for.
+        let difference = with_render_choices(Some(gate_cores()), || {
+            let original = render_file(&file);
+            render_bytes(&name, &optimized).and_then(|rendered| difference(&original, &rendered))
+        });
+        if let Some((first, peak)) = difference {
             entry.1 += 1;
             if failures.len() < 40 {
                 failures.push(format!("{name} [{chips}] @ sample {first}, peak {peak}"));
@@ -448,7 +490,7 @@ fn dump_dropped_writes() {
     let file = vgms_core::vgm::file::read(&name, &raw).unwrap();
     let stream = file.stream().expect("walks");
 
-    let dropped = vgms_core::chip_state::redundant_indices(stream, file.loop_index());
+    let dropped = vgms_core::redundancy::redundant_indices(stream, file.loop_index());
     println!("\n== {name} [{}] ==", file.chip_list());
     println!(
         "stream commands: {}, built-in drops: {}",
