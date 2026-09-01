@@ -1,5 +1,5 @@
-//! Why the YM2612 fails the built-in optimiser's render gate, and the YM2608,
-//! YM2610 and every OPL part do not.
+//! The measurement behind `vgms_core::redundancy::write_timing_audible`: what a
+//! write-paced core hears that an immediate one does not.
 //!
 //! Nuked-OPN2 is cycle-accurate about the *write bus*: this app's wrapper
 //! (`vgms-cores-nuked/src/opn2.rs`) queues register writes and lets one through
@@ -9,10 +9,12 @@
 //! YM2608/YM2610 and is available for the YM2612 as `ym2612.libvgm`, applies
 //! writes the instant they arrive.
 //!
-//! So the render gate's oracle -- "the engine renders byte-exact under write
-//! removal, so a difference is a dropped write that mattered" -- holds for an
-//! immediate-write core and *not* for a write-paced one. This test measures the
-//! split: the same optimised files, rendered through both cores.
+//! When the built-in still deduped YM2612 value repeats, this split measured 22
+//! of 24 optimised files differing under Nuked and 0 under libvgm -- which is
+//! why value dedup is now suspended on write-paced chips (the owner's rule:
+//! optimisation must be inaudible under every selectable core). With the
+//! current optimiser both columns should read 0; a nonzero Nuked column means a
+//! rule has crept past the pacing guard.
 //!
 //!   $env:VGMSTUDIO_VGMRIPS_CORPUS = 'F:/GameMusic/VGM/VGMRips_all_of_them_2025-10-17'
 //!   cargo test -p vgms-app --release --test opn_write_pacing -- --ignored --nocapture

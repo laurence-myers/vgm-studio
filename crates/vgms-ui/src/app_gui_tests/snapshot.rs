@@ -1314,7 +1314,11 @@ fn a_disagreeing_header_is_offered_for_fixing_rather_than_fixed() {
     assert!(app.status.contains("Corrected 1"), "{}", app.status);
 }
 
-/// A Mega Drive rip with a repeated write shrinks, undoably.
+/// A Mega Drive rip with a split wait shrinks, undoably.
+///
+/// A redundant write would not do here: the YM2612's cores pace writes, so
+/// the built-in never drops a register write from it -- only the delay merge
+/// applies (see `vgms_core::redundancy`).
 #[test]
 fn a_non_opl_document_can_be_optimized() {
     use vgms_core::ChipKind;
@@ -1327,9 +1331,10 @@ fn a_non_opl_document_can_be_optimized() {
     put_u32(&mut bytes, 0x34, 0x100 - 0x34);
     put_u32(&mut bytes, ChipKind::Ym2612.clock_offset(), 7_670_454);
     bytes.extend_from_slice(&[
-        0x52, 0x22, 0x08, // LFO
-        0x62, //
-        0x52, 0x22, 0x08, // the same value -- droppable
+        0x52, 0x30, 0x71, // an operator register
+        0x61, 0x64, 0x00, // wait 100 --
+        0x61, 0xC8, 0x00, // wait 200 -- merged into one wait 300
+        0x52, 0x34, 0x71, // another register, so the file has body
         0x62, 0x66,
     ]);
     let eof = bytes.len();
@@ -1342,11 +1347,11 @@ fn a_non_opl_document_can_be_optimized() {
     };
     let (mut harness, _handles) = build(Some(file), false, false);
     let before = harness.state().editor.save_bytes().unwrap();
-    assert_eq!(harness.state().editor.len(), 4);
+    assert_eq!(harness.state().editor.len(), 5);
 
     act(&mut harness, Action::Edit(EditAction::OptimizeVgm));
     let app = harness.state();
-    assert_eq!(app.editor.len(), 3, "the repeat is gone");
+    assert_eq!(app.editor.len(), 4, "the split wait merged");
     assert!(app.status.contains("Optimized"), "{}", app.status);
 
     harness.state_mut().editor.undo();

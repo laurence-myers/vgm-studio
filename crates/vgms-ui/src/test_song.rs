@@ -109,22 +109,25 @@ pub(crate) fn dro_song_v2() -> DroSong {
     )
 }
 
-/// A small OPL2 VGM carrying redundant register writes between its delays, so
-/// the optimiser has both writes to strip (indices 4 and 5 repeat the values set
-/// at 1 and 2) and the delays they separate to merge.
+/// A small OPL2 VGM the optimiser can shrink.
+///
+/// The OPL family's cores pace writes, so no register write is ever dropped
+/// from it (see `vgms_core::redundancy`) -- what its files can still lose is
+/// delay spelling: two adjacent waits re-encode as one. The split waits at
+/// indices 3-4 and 7-8 are that shape, and merging them moves no write in
+/// time, so the editor's render gate accepts the shrink.
 pub(crate) fn redundant_vgm_bytes() -> Vec<u8> {
     assemble_opl2_vgm(
         "redundant.vgm",
         &[
-            0x5A, 0x20, 0x01, // write
-            0x5A, 0x40, 0x10, // write (operator level)
-            0x5A, 0xB0, 0x31, // key on
-            0x61, 0x64, 0x00, // wait 100
-            0x5A, 0x40, 0x10, // redundant -- same operator level
-            0x5A, 0xB0, 0x31, // redundant -- key already on
-            0x61, 0xC8, 0x00, // wait 200
-            0x5A, 0xB0, 0x11, // key off
-            0x61, 0x64, 0x00, // wait 100
+            0x5A, 0x20, 0x01, // 0: mult
+            0x5A, 0x40, 0x10, // 1: level
+            0x5A, 0xB0, 0x31, // 2: key on
+            0x61, 0x64, 0x00, // 3: wait 100 --
+            0x61, 0xC8, 0x00, // 4: wait 200 -- merged into one wait 300
+            0x5A, 0xB0, 0x11, // 5: key off
+            0x61, 0x64, 0x00, // 6: wait 100 --
+            0x61, 0x64, 0x00, // 7: wait 100 -- merged into one wait 200
         ],
     )
 }

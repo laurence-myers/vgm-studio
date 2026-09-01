@@ -131,6 +131,15 @@ when Stage 1's gate passes it, in priority order from the size gap:
   the look-ahead `vgm_cmp` uses), the SN76489's noise-shifter reset is kept, and
   the SAA1099 and Game Boy get the rules upstream never finished. Report:
   `docs/optimizer-coverage-2026-09/REPORT.md`.
+
+  **Amended the same day by the owner's ruling** (the report's addendum):
+  optimisation must be inaudible under *every* selectable core, and ten chips
+  have a write-paced core that makes the write count itself audible — the OPL
+  family included, which means the original OPL dedup had been (rarely, and
+  under the shipping renderer) audible all along. Those ten chips
+  (`redundancy::write_timing_audible`) now drop no register writes at all —
+  the delay merge alone — and the immediate-core chips keep the full dedup
+  plus a zero-wait override on their pure-store registers.
 - **3b — the PCM compressors:** `optdac` (YM2612 DAC-run collapse) first, then the
   sample-ROM trims (`vgm_sro`, per-chip behind the gate as
   `which_chips_the_sample_rom_trim_is_safe_for` already vets).

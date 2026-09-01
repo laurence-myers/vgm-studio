@@ -14,8 +14,9 @@ fn optimizing_a_vgm_strips_writes_and_reports_the_saving() {
         state.editor.len() < before,
         "optimizing should remove commands"
     );
-    // The two redundant writes go, and the delays they separated merge into one.
-    assert_eq!(state.editor.len(), before - 3);
+    // The two split waits each merge into one; no write is dropped (the OPL
+    // family's cores pace writes), so the count falls by exactly two rows.
+    assert_eq!(state.editor.len(), before - 2);
     assert!(
         state.status.contains("Optimized") && state.status.contains("saved"),
         "status should report the saving, got {:?}",
@@ -90,14 +91,14 @@ fn optimizing_an_already_optimal_vgm_reports_nothing() {
 
 #[test]
 fn optimize_re_derives_the_loop_markers_from_the_remapped_loop() {
-    // Loop point at the key-off write (index 7); stripping the two redundant
-    // writes before it slides and re-indexes it.
+    // Loop point at the key-off write (index 5); merging the split wait before
+    // it slides and re-indexes it.
     let mut file = redundant_vgm_file();
-    file.set_loop_rows(Some(7), None);
+    file.set_loop_rows(Some(5), None);
     let (mut harness, _handles) = harness_with_vgm(&file);
     assert_eq!(
         harness.state().editor.markers.start(),
-        7,
+        5,
         "loaded loop point"
     );
 
@@ -113,8 +114,8 @@ fn optimize_re_derives_the_loop_markers_from_the_remapped_loop() {
     // The markers were re-derived from the song's remapped loop, so they agree.
     assert_eq!(state.editor.markers.start(), remapped);
     assert!(
-        remapped < 7,
-        "the loop point slid left past the stripped writes, got {remapped}"
+        remapped < 5,
+        "the loop point slid left past the merged waits, got {remapped}"
     );
 }
 

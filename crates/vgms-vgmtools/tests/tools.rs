@@ -206,12 +206,14 @@ fn stage_names(bytes: &[u8], options: Options) -> Vec<(&'static str, StageOutcom
 
 #[test]
 fn the_pass_shrinks_a_redundant_file_and_keeps_its_timing() {
+    // A YM2612 file, whose cores pace writes: no register write is ever
+    // dropped from it (see `vgms_core::redundancy`), so what shrinks is the
+    // delay spelling -- the adjacent waits re-encode as one.
     let stream = [
-        0x52, 0x22, 0x08, //
-        0x61, 0x10, 0x27, //
-        0x52, 0x22, 0x08, //
-        0x61, 0x20, 0x4E, //
-        0x52, 0x22, 0x08, //
+        0x52, 0x30, 0x71, //
+        0x61, 0x10, 0x27, // wait 10000 --
+        0x61, 0x20, 0x4E, // wait 20000 -- merged into one wait 30000
+        0x52, 0x34, 0x71, //
         0x62, //
         0x66,
     ];

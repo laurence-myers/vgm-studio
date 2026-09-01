@@ -200,6 +200,12 @@ so at the top, so the next person does not have to rediscover it.
 
 ## Known consequences and what is still open
 
+> **Overtaken by the addendum below.** The first bullet's dilemma was resolved
+> the same day by the owner, in the opposite direction to the one this section
+> weighs: the optimiser became conservative on paced chips, so the interactive
+> gate needs no substitution and `set_immediate_writes` is gone again. The
+> section is kept as the record of the state the decision was made against.
+
 - **The interactive render gate still rejects write-paced chips.** `Edit >
   Optimize` and the per-track pack optimise call
   `vgms_synth::renders_identically`, which renders through the *configured*
@@ -224,3 +230,91 @@ so at the top, so the next person does not have to rediscover it.
 - Chips whose classification is deliberately near-total keep, and could be
   narrowed by someone with the hardware knowledge: Game Boy (all), SCSP,
   K051649's frequency port, C352's address registers, Mikey's timer registers.
+
+---
+
+## Addendum (2026-09-01): the owner's ruling — inaudible under *every* core
+
+The product decision the sections above left open was taken the same day, and
+it went the other way from the gate-substitution approach: **optimisation must
+never produce different audio results, regardless of which core the user has
+selected.** A chip that can produce audio without a wait between writes — a
+write-paced core rendering the drain of a zero-wait burst — must not have
+register writes removed, with one sanctioned exception: an initial register
+state setup at the start of the song that is immediately (no wait) overridden
+by another write.
+
+That inverts the verification strategy. Instead of the gate rendering through
+immediate-write cores so the old dedup could pass, the *optimiser* became
+conservative enough to pass under the paced cores that actually ship:
+
+- **`redundancy::write_timing_audible`** names every chip with a paced core in
+  the registry — the four Nuked-promoted chips (YM2612, YM2151, YM2413,
+  SN76489), the OPL family through the adapter's `OPL3_WriteRegBuffered`
+  (YM3812, YM3526, Y8950, YMF262), and the YM2203/YM2608 through their LLE
+  dies. Ten chips. **Value dedup is suspended on all of them.**
+- **A zero-wait override rule** was added, for immediate-core chips only: a
+  write is dead when the very next command touching the same chip instance —
+  no time passing, nothing but other chips' writes between — is a kept write
+  to the same cell. No samples ever render between the pair, so the dropped
+  value is provably invisible.
+
+  The owner's sanctioned exception — a setup-prefix write immediately
+  overridden — **was tried on the paced chips and the corpus refused it**. A
+  Mega Drive init block is hundreds of writes, and the paced queue's backlog
+  outlives the setup prefix: the drain is still running when the first notes
+  key on, so even a prefix drop shifted audible content on 131 of 193
+  SN76489+YM2612 files, every divergence inside the first ~1000 samples. So
+  the exception survives only where it is provably invisible, and **the ten
+  paced chips drop no register writes at all** — their files shrink through
+  the byte-minimal delay merge alone.
+- The rule is **opt-in per register** (`store()` beside `latch()` in the
+  classification), and the corpus taught why the hard way. The first cut
+  applied it to every latch cell and failed on 200+ files: "same cell" is not
+  "state fully replaced". The OPN's `0x28` key register holds *per-channel*
+  state selected by the data — an init key-off run (`0x28=00,01,02…`) is six
+  different things written through one address, and the override collapsed it
+  to one channel on 132 of 193 Mega Drive files. And key/rhythm bits
+  (OPL `0xB0`/`0xBD`, HuC6280's control register…) pulse an **edge** through an
+  intermediate value even in zero elapsed time, so a value being overwritten is
+  not the same as it never having mattered. Only *pure stores* — value fully
+  replaces the cell, no bit edges on change — are blessed: the FM operator and
+  frequency ranges of the OPL/OPN/OPM/OPLL families, the OPN frequency latch
+  group, and the SN76489's register cells.
+- The strict adjacency is the other half of the safety argument: no
+  intervening write can have observed the dropped one — not an OPN commit
+  reading the frequency latch, not an SN76489 continuation byte reading the
+  register select, not a MultiPCM data write reading its slot selects.
+- The gate reverted to rendering through the **shipping cores** (the
+  substitution and `VgmEngine::set_immediate_writes` are gone; a
+  `VGMSTUDIO_GATE_CORES=chip=core,...` env exists for alternate-core passes).
+  The interactive render gate needs no change at all now: what the optimiser
+  produces is byte-identical under the paced cores it renders through.
+
+What survives per chip:
+
+| Chips | Rules |
+|---|---|
+| The ten paced chips (OPL family, YM2612, YM2151, YM2413, SN76489, YM2203, YM2608) | **delay merge only** |
+| The Game Boy | delay merge only (no pure latches) |
+| YM2610 | full value dedup + override on its pure-store FM ranges + delay merge |
+| Everything else (YMZ280B, AY8910, NES, HuC6280, the PCM/wavetable fleet…) | full value dedup + delay merge (no registers blessed for override — the proven configuration) |
+
+The cost is real, accepted, and now priced (`optimizer_size_sweep.rs`, 1500
+files): the built-in saves **0.3%** overall — 143 files shrink, led by the
+immediate-core YM2610 (1.3%) and NES (1.9%) — against the ~19.6% the old
+dedup measured before the pacing artifact was understood. OPL and Mega Drive
+files keep only the byte-minimal delay merge. In exchange the guarantee is
+absolute — on a paced chip the optimiser touches nothing a core could ever
+render differently, under any core the picker offers.
+
+**Final verification, both green over 1500 files each:**
+
+| Gate | Result |
+|---|---|
+| Shipping cores (Nuked/paced defaults) | **0 changed** |
+| Alternate cores (`VGMSTUDIO_GATE_CORES`: MAME/Gens for every dedup-active chip with one) | **0 changed** |
+
+If compression matters more than the every-core guarantee for some future
+path, the levers are all in `redundancy.rs` (`write_timing_audible`, the
+`store` blessings) — but each loosening must re-run both gate configurations.

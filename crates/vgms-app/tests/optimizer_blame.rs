@@ -23,22 +23,27 @@ use vgms_synth::vgm_engine::VgmEngine;
 const OUTPUT_RATE: u32 = 44_100;
 const FRAMES: usize = 44_100 * 8;
 
-/// The same immediate-write cores the gate uses -- otherwise every class comes
-/// back guilty, because a write-paced core hears the write *count*. See
-/// `optimizer_investigation::gate_cores`.
-fn blame_cores() -> CoreChoices {
-    CoreChoices::from([
-        ("ym2612".to_owned(), "libvgm".to_owned()),
-        ("ym2151".to_owned(), "libvgm".to_owned()),
-        ("ym2413".to_owned(), "libvgm".to_owned()),
-        ("sn76489".to_owned(), "libvgm".to_owned()),
-    ])
+/// The same cores the gate renders through -- the shipping defaults, or the
+/// `VGMSTUDIO_GATE_CORES` alternates (`"chip=core,..."`). Diagnosing under any
+/// other roster answers a different question than the gate asked.
+///
+/// A tell worth knowing: a *global* pacing artifact (the drop shifted a
+/// write-paced core's queue) shows up as nearly every class guilty; a real rule
+/// bug shows as one or two. `vgms_core::redundancy::write_timing_audible` is
+/// the list of chips where the former is possible.
+fn blame_cores() -> Option<CoreChoices> {
+    let spec = std::env::var("VGMSTUDIO_GATE_CORES").ok()?;
+    let mut choices = Vec::new();
+    for pair in spec.split(',') {
+        let (chip, core) = pair.split_once('=').expect("chip=core pairs");
+        choices.push((chip.trim().to_owned(), core.trim().to_owned()));
+    }
+    Some(CoreChoices::from_iter(choices))
 }
 
 fn render(file: &VgmFile) -> Vec<i16> {
-    with_render_choices(Some(blame_cores()), || {
+    with_render_choices(blame_cores(), || {
         let mut engine = VgmEngine::new(Arc::new(file.clone()), OUTPUT_RATE);
-        engine.set_immediate_writes(true);
         let mut out = vec![0i16; FRAMES * 2];
         let mut done = 0usize;
         while done < FRAMES {

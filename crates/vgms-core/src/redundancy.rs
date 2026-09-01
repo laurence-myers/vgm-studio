@@ -1,19 +1,31 @@
-//! Which register writes a VGM can lose without changing what it plays.
+//! Which register writes a VGM can lose without changing what it plays --
+//! under **any** core the user can select, not merely the one selected now.
 //!
 //! The optimiser's first phase walks the command stream holding a shadow copy
 //! of every chip's registers, and drops a write whose cell already holds the
-//! value being written. That rule is only sound for a register that *latches*:
-//! one whose write has no effect beyond storing the byte. A register that
-//! **triggers** -- a key that re-attacks, a counter that reloads, a FIFO that
-//! advances, an address the chip itself moves while playing -- must keep every
-//! write, because the second one does something the first did not, and the
-//! failure is silent: the file gets smaller and plays wrong.
+//! value being written. That rule is only sound twice over:
+//!
+//! 1. The register must *latch*: a write with no effect beyond storing the
+//!    byte. A register that **triggers** -- a key that re-attacks, a counter
+//!    that reloads, a FIFO that advances, an address the chip itself moves
+//!    while playing -- must keep every write, because the second one does
+//!    something the first did not, and the failure is silent: the file gets
+//!    smaller and plays wrong.
+//! 2. Every core that can render the chip must apply writes the instant they
+//!    arrive. A **write-paced** core (a Nuked wrapper's queue, the OPL
+//!    adapter's buffer) renders audio *between* zero-wait writes, so removing
+//!    even a value-identical repeat shifts every write behind it a slot
+//!    earlier -- audibly. [`write_timing_audible`] is that list; those chips
+//!    drop no register writes at all, and get only the delay merge.
 //!
 //! So every chip is classified register by register, in [`classify`]. The
 //! verdict is one of two:
 //!
 //! * `Keep` -- never dropped.
-//! * `Latch` -- droppable when the named cell already holds the named value.
+//! * `Latch` -- droppable (on an immediate-core chip) when the named cell
+//!   already holds the named value, or -- for the pure-store subset -- when
+//!   the very next command on the chip overwrites the cell before any time
+//!   passes.
 //!
 //! # Cells, not addresses
 //!
@@ -75,8 +87,20 @@ enum Verdict {
     /// and the tone came out at the wrong pitch (caught by the corpus gate,
     /// peak 29792).
     KeepAndRecord { cell: u64, value: u32 },
-    /// Dropped when `cell` already holds `value`.
-    Latch { cell: u64, value: u32 },
+    /// Dropped when `cell` already holds `value` (an immediate-core chip), or
+    /// when a kept write to the same cell follows before any time passes and
+    /// `store` is true.
+    ///
+    /// `store` is the override rule's opt-in: true only for a **pure store**,
+    /// where the value fully replaces the cell's state and no bit edges on a
+    /// change. A register can be safe to *dedup* and still unsafe to override:
+    /// the OPN's `0x28` holds per-channel key state selected by the data (so
+    /// two "same-cell" writes may address different channels), and key or
+    /// rhythm bits pulse an edge on the way through an intermediate value even
+    /// in zero elapsed time. The corpus gate proved both failure modes: init
+    /// key-off runs collapsed to one channel on 132 of 193 Mega Drive files
+    /// before this flag existed.
+    Latch { cell: u64, value: u32, store: bool },
 }
 
 /// A verdict, plus whether the write invalidates everything else on its chip.
@@ -104,15 +128,39 @@ const fn keep_and_forget() -> Decision {
     }
 }
 
-/// The ordinary cell: this address, on this port.
+/// The ordinary cell: this address, on this port. Dedup-eligible only.
 const fn latch(port: u8, addr: u16, data: u16) -> Decision {
     cell(plain_cell(port, addr), data as u32)
 }
 
 /// A cell named by hand -- an indirected register, or a shared latch.
+/// Dedup-eligible only.
 const fn cell(cell: u64, value: u32) -> Decision {
     Decision {
-        verdict: Verdict::Latch { cell, value },
+        verdict: Verdict::Latch {
+            cell,
+            value,
+            store: false,
+        },
+        forgets_chip: false,
+    }
+}
+
+/// A **pure store** at this address: the value fully replaces the cell's state
+/// and no bit edges on a change, so it is override-eligible as well as
+/// dedup-eligible.
+const fn store(port: u8, addr: u16, data: u16) -> Decision {
+    store_cell(plain_cell(port, addr), data as u32)
+}
+
+/// A pure store into a hand-named cell.
+const fn store_cell(cell: u64, value: u32) -> Decision {
+    Decision {
+        verdict: Verdict::Latch {
+            cell,
+            value,
+            store: true,
+        },
         forgets_chip: false,
     }
 }
@@ -164,10 +212,81 @@ pub const fn has_latch_rules(_chip: ChipKind) -> bool {
     true
 }
 
+/// Whether any core this app can select for `chip` makes the *timing* of a
+/// register write audible -- so removing even a value-identical repeat can
+/// change what plays.
+///
+/// A write-paced core queues register writes and releases one per settling
+/// period, because the real chip's busy flag stalls its bus that way. During a
+/// zero-wait burst it therefore renders audio *between* the writes: drop one
+/// and every write behind it lands a slot earlier, which is audible whenever
+/// the transient is. The owner's rule (2026-09): optimisation must never change
+/// what a file plays under **any** selectable core -- so a chip with even one
+/// paced core in the registry drops **no register writes at all** -- only the
+/// delay merge touches its files. Even the setup-prefix override was measured
+/// audible on these chips (the init backlog outlives the prefix; see
+/// [`redundant_indices`]).
+///
+/// The list is every chip a paced core is registered for, wrapper by wrapper:
+///
+/// - **The OPL family** (`YM3812`, `YM3526`, `Y8950`, `YMF262` --
+///   `vgms_synth::registry::OPL_CHIPS`): `OplCoreAdapter` sends playback
+///   through Nuked-OPL3's `OPL3_WriteRegBuffered`, and the CQM, OPL2-Lite and
+///   both LLE OPL cores ride the same adapter or pace on their own pins.
+/// - **`YM2612`**: the Nuked-OPN2 wrapper's `WriteQueue`, and both LLE dies.
+/// - **`YM2151`**: the Nuked-OPM wrapper's `WriteQueue`, and the LLE die.
+/// - **`YM2413`**: the Nuked-OPLL wrapper's `WriteQueue`.
+/// - **`SN76489`**: the Nuked-PSG wrapper's byte queue and settle.
+/// - **`YM2203`** / **`YM2608`**: the LLE OPN/OPNA dies.
+///
+/// The `YM2610` and `YMF278B` render through libvgm alone, which applies
+/// writes the instant they arrive, so they are *not* here -- and a new core
+/// registration for any chip must revisit this list before it ships.
+#[must_use]
+pub const fn write_timing_audible(chip: ChipKind) -> bool {
+    use ChipKind as K;
+    matches!(
+        chip,
+        K::Ym3812
+            | K::Ym3526
+            | K::Y8950
+            | K::Ymf262
+            | K::Ym2612
+            | K::Ym2151
+            | K::Ym2413
+            | K::Sn76489
+            | K::Ym2203
+            | K::Ym2608
+    )
+}
+
 /// The writes that can be dropped without changing what is heard, ascending.
 ///
-/// A write is redundant when the rules call its register a pure latch and the
-/// cell it lands in already holds that value. Everything else stays.
+/// Both rules apply only to chips whose every selectable core applies writes
+/// immediately; a [`write_timing_audible`] chip drops **nothing** here, and
+/// gets only the delay merge:
+///
+/// - **Value dedup**: a write is redundant when the rules call its register a
+///   pure latch and the cell it lands in already holds that value.
+/// - **Zero-wait override**, on [`store`]-classified registers only: a write is
+///   dead when the very next command touching the same chip instance -- with no
+///   time passing and nothing but other chips' writes in between -- is a kept
+///   write to the same cell. The value never lands anywhere audible, because an
+///   immediate core renders no samples between the two.
+///
+/// The owner's sanctioned exception -- a setup write immediately overridden --
+/// was tried on the paced chips and the corpus refused it: a Mega Drive init
+/// block is hundreds of writes, the paced queue's backlog outlives the setup
+/// prefix, and the shifted drain collided with the song's opening notes on 131
+/// of 193 files. So the exception survives only where it is provably invisible.
+///
+/// The strictness of the override rule is deliberate twice over. Requiring the
+/// overriding write to be the very next command on that chip means no
+/// intervening write can have observed the dropped one -- not an OPN commit
+/// reading the latch, not an SN76489 continuation byte reading the register
+/// select, not a MultiPCM data write reading the slot registers. And requiring
+/// a [`store`] classification means the value really is the whole story -- see
+/// [`Verdict::Latch`] for the two ways "same cell, overwritten" can lie.
 ///
 /// `loop_at` is the row the song loops back to, if any. Every cell is forgotten
 /// there, so the loop body re-establishes its own state and still sounds right
@@ -176,6 +295,11 @@ pub const fn has_latch_rules(_chip: ChipKind) -> bool {
 pub fn redundant_indices(stream: &VgmStream, loop_at: Option<usize>) -> Vec<usize> {
     let mut held: BTreeMap<(ChipKind, u8, u64), u32> = BTreeMap::new();
     let mut aux: BTreeMap<(ChipKind, u8), Aux> = BTreeMap::new();
+    // Per chip instance: the last still-surviving latch write, and its cell --
+    // the candidate the next same-cell write on that chip may override. Cleared
+    // by any passage of time, by anything that is not a register write, and by
+    // any kept non-latch write on the chip.
+    let mut pending: BTreeMap<(ChipKind, u8), (usize, u64)> = BTreeMap::new();
     let mut redundant = Vec::new();
     // Built the first time a chip needs to see past the write in hand, which
     // today is only the SN76489. Most files never pay for it.
@@ -185,8 +309,16 @@ pub fn redundant_indices(stream: &VgmStream, loop_at: Option<usize>) -> Vec<usiz
         if loop_at == Some(index) {
             held.clear();
             aux.clear();
+            pending.clear();
         }
         let Some(VgmCommand::Write { target, addr, data }) = stream.get(index) else {
+            // A wait of zero samples changes nothing and blocks nothing; any
+            // other command -- real waits, DAC writes (which are YM2612 writes
+            // with a wait attached), data blocks, stream control -- ends every
+            // chip's zero-wait window.
+            if !matches!(stream.get(index), Some(VgmCommand::Wait(0))) {
+                pending.clear();
+            }
             continue;
         };
         let next = if target.kind == ChipKind::Sn76489 {
@@ -197,24 +329,61 @@ pub fn redundant_indices(stream: &VgmStream, loop_at: Option<usize>) -> Vec<usiz
         };
         let state = aux.entry((target.kind, target.instance)).or_default();
         let decision = classify(target, addr, data, state, next);
+        let chip_key = (target.kind, target.instance);
         if decision.forgets_chip {
             held.retain(|(kind, instance, _), _| {
                 *kind != target.kind || *instance != target.instance
             });
         }
         match decision.verdict {
-            Verdict::Keep => {}
+            Verdict::Keep => {
+                pending.remove(&chip_key);
+            }
             Verdict::KeepAndRecord { cell, value } => {
                 held.insert((target.kind, target.instance, cell), value);
+                pending.remove(&chip_key);
             }
-            Verdict::Latch { cell, value } => {
+            // A paced chip's Latch verdicts drop nothing at all: not the value
+            // dedup (the repeat's arrival is itself rendered) and not the
+            // zero-wait override -- the corpus killed even the setup-prefix
+            // version of that. A Mega Drive init block is hundreds of writes,
+            // and the paced queue's backlog outlives the prefix: the drain is
+            // still running when the first notes key on, so a dropped prefix
+            // write shifted audible content on 131 of 193 files (divergence in
+            // the first ~1000 samples on every one).
+            Verdict::Latch { .. } if write_timing_audible(target.kind) => {}
+            Verdict::Latch { cell, value, store } => {
                 let key = (target.kind, target.instance, cell);
-                if held.insert(key, value) == Some(value) {
+                let previous = held.insert(key, value);
+                if previous == Some(value) {
+                    // The value dedup. A dropped write neither overrides the
+                    // pending write nor replaces it: the pending one is what
+                    // still carries the value.
                     redundant.push(index);
+                } else if store {
+                    if let Some(&(overridden, pending_cell)) = pending.get(&chip_key)
+                        && pending_cell == cell
+                    {
+                        // The zero-wait override: this kept write lands in the
+                        // same cell with no time passed and nothing on the chip
+                        // between, so the previous write's value was never
+                        // observable -- the chip's cores apply writes
+                        // immediately, so not a single sample rendered between
+                        // the two.
+                        redundant.push(overridden);
+                    }
+                    pending.insert(chip_key, (index, cell));
+                } else {
+                    // A dedup-only latch: it neither offers itself for
+                    // override nor lets a write ride over it.
+                    pending.remove(&chip_key);
                 }
             }
         }
     }
+    // An override drops an *earlier* index than the write that triggered it,
+    // so with several chips interleaved the pushes are not globally ordered.
+    redundant.sort_unstable();
     redundant
 }
 
@@ -263,7 +432,7 @@ fn classify(
         // -- the PSGs ---------------------------------------------------------
         K::Sn76489 => match addr {
             // The Game Gear stereo latch, which is a plain register.
-            1 => latch(port, 1, data),
+            1 => store(port, 1, data),
             _ => sn76489(data, aux, next),
         },
         K::Ay8910 => ay8910(port, addr, data),
@@ -333,7 +502,16 @@ fn classify(
         // Every register latches, key-on included: the `0xB0` key bit is
         // level-sensitive, so re-writing it does not re-attack. OPL3's second
         // bank arrives on its own port and is therefore its own cell.
-        K::Ym3812 | K::Ym3526 | K::Y8950 | K::Ymf262 => latch(port, addr, data),
+        //
+        // The operator ranges, the F-number lows, the algorithm block and the
+        // waveform selects are pure stores; `0xB0`-`0xB8` and `0xBD` are not --
+        // their key and rhythm bits pulse an edge on the way through an
+        // intermediate value even in zero time -- and neither are the timers
+        // and modes below `0x20`.
+        K::Ym3812 | K::Ym3526 | K::Y8950 | K::Ymf262 => match addr {
+            0x20..=0xAF | 0xC0..=0xFF => store(port, addr, data),
+            _ => latch(port, addr, data),
+        },
         K::Ymf278b => {
             if port < 2 {
                 // The OPL3-compatible FM side.
@@ -344,13 +522,14 @@ fn classify(
             }
         }
         // The YM2413's `0x20`-`0x28` carry the key-on bits.
-        K::Ym2413 => {
-            if (0x20..=0x28).contains(&addr) {
-                keep()
-            } else {
-                latch(port, addr, data)
-            }
-        }
+        K::Ym2413 => match addr {
+            // `0x20`-`0x28` carry the key-on bits.
+            0x20..=0x28 => keep(),
+            // The user patch, the F-number lows and the instrument/volume
+            // selects: pure stores. `0x0E` (rhythm key bits) is not.
+            0x00..=0x07 | 0x10..=0x18 | 0x30..=0x38 => store(port, addr, data),
+            _ => latch(port, addr, data),
+        },
 
         // -- the OPN family ---------------------------------------------------
         K::Ym2612 => match (port, addr) {
@@ -388,6 +567,11 @@ fn classify(
         // The OPM. Its test register's bit 1 resets the LFO phase.
         K::Ym2151 => match addr {
             0x01 => keep(),
+            // The channel and operator registers are pure stores. Below 0x20
+            // sit the key register (`0x08`, channel in the data), the AMD/PMD
+            // pair (`0x19`, target in the data's top bit), the timers and the
+            // LFO -- dedup-only.
+            0x20..=0xFF => store(port, addr, data),
             _ => latch(port, addr, data),
         },
         K::Ymf271 => ymf271(port, addr, data),
@@ -615,7 +799,7 @@ fn sn76489(data: u16, aux: &mut Aux, next: Option<u16>) -> Decision {
         return match aux.sn_reg {
             // The three tone periods take six more bits of frequency.
             // Re-writing one does not restart its counter.
-            0 | 2 | 4 => cell(high(aux.sn_reg), u32::from(byte & 0x3F)),
+            0 | 2 | 4 => store_cell(high(aux.sn_reg), u32::from(byte & 0x3F)),
             // On every other register a continuation replaces the low four
             // bits, as a latch byte does. Rare enough that upstream prints a
             // warning when it sees one, and on the noise register it reseeds
@@ -637,7 +821,7 @@ fn sn76489(data: u16, aux: &mut Aux, next: Option<u16>) -> Decision {
     // therefore always kept, and the chip's register select never diverges from
     // `aux.sn_reg` where it matters.
     if next.is_none_or(|byte| byte & 0x80 != 0) {
-        cell(low(reg), value)
+        store_cell(low(reg), value)
     } else {
         keep_recording(low(reg), value)
     }
@@ -689,12 +873,20 @@ fn opn_fm(port: u8, addr: u16, data: u16) -> Decision {
         0xA0 if addr & 0x03 != 0x03 => keep(),
         // A4-A6 and AC-AE: the latch, keyed by its chip-wide group. The value
         // carries the port and the address, so only a verbatim repeat of the
-        // last write to that latch counts as one.
-        0xA4 if addr & 0x03 != 0x03 => cell(
+        // last write to that latch counts as one. Overwriting the latch is a
+        // pure store -- nothing reads it until a commit, and the commit ends
+        // the override window.
+        0xA4 if addr & 0x03 != 0x03 => store_cell(
             indirect_cell(u64::from(addr & 0x08)),
             (u32::from(port) << 24) | (u32::from(addr) << 16) | data as u32,
         ),
-        _ => latch(port, addr, data),
+        // The operator block and the algorithm/pan block: pure stores. Below
+        // 0x30 sit the key register (`0x28`, channel in the data), the LFO and
+        // the DAC controls -- dedup-only.
+        _ => match addr {
+            0x30..=0x9F | 0xB0..=0xB2 | 0xB4..=0xB6 => store(port, addr, data),
+            _ => latch(port, addr, data),
+        },
     }
 }
 

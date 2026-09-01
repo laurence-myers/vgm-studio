@@ -614,10 +614,12 @@ pub(crate) const SETTINGS_DEVICE_HOVER: &str =
 pub(crate) const SETTINGS_RESAMPLING_HOVER: &str = "How non-OPL chips are resampled. Sinc is \
      band-limited and accurate; linear is aliased but crunchy.";
 pub(crate) const SETTINGS_OPTIMIZER_HOVER: &str = "Which optimiser shrinks a VGM on Edit > Optimize and pack export. \
-     Automatic drops redundant writes with the built-in pass, which covers \
-     every chip, and still runs the external vgmtools for the two jobs it does \
-     not do -- collapsing DAC runs and trimming sample ROMs. The other choices \
-     always use the named optimiser.";
+     Automatic drops redundant writes with the built-in pass -- only ever \
+     writes no core can hear, so chips with a cycle-accurate core keep every \
+     write and shrink through delay re-encoding alone -- and still runs the \
+     external vgmtools for the two jobs it does not do: collapsing DAC runs \
+     and trimming sample ROMs. The other choices always use the named \
+     optimiser.";
 pub(crate) const SETTINGS_TOOL_STAGES_HOVER: &str = "Extra stages the external tools run. They apply only when the tools run, so \
      they are greyed for the built-in optimiser.";
 pub(crate) const SETTINGS_SAMPLE_ROMS_HOVER: &str =

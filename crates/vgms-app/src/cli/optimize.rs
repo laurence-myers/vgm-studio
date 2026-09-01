@@ -207,16 +207,18 @@ mod tests {
     /// end marker) and canonicalised through the reader/writer.
     fn redundant_vgm_bytes() -> Vec<u8> {
         let stream = [
-            0x5A, 0x20, 0x01, // write
+            0x5D, 0x20, 0x01, // write
             0x61, 0x64, 0x00, // wait 100
-            0x5A, 0x20, 0x01, // redundant write
+            0x5D, 0x20, 0x01, // redundant write
             0x61, 0xC8, 0x00, // wait 200
-            0x5A, 0x21, 0x02, // write
+            0x5D, 0x21, 0x02, // write
         ];
         let mut bytes = synthesise_header();
-        // The YM3812 clock (offset 0x50, spec-stable) makes it a wholly-OPL2 file,
-        // so the optimiser takes the built-in path.
-        bytes[0x50..0x54].copy_from_slice(&3_579_545u32.to_le_bytes());
+        // The YMZ280B clock (offset 0x68, spec-stable) makes it a file the
+        // built-in's *value dedup* covers -- the chip's one core applies writes
+        // immediately, so the separated repeat is droppable. (An OPL chip would
+        // not be: its cores pace writes, so only zero-wait overrides drop.)
+        bytes[0x68..0x6C].copy_from_slice(&16_934_400u32.to_le_bytes());
         bytes.extend_from_slice(&stream);
         bytes.push(0x66); // end marker
         let eof = (bytes.len() - 0x04) as u32;

@@ -154,17 +154,21 @@ mod tests {
         bytes
     }
 
-    /// A Mega Drive rip with a repeated register write comes out smaller,
-    /// through the chip-agnostic tools pass -- proving the native song optimizer
-    /// is actually wired to `build_pack_zip` (the shared builder cannot run it).
+    /// A Mega Drive rip with a split wait comes out smaller -- proving
+    /// the native song optimizer is actually wired to `build_pack_zip` (the
+    /// shared builder cannot run it).
     #[test]
     fn a_ym2612_vgm_is_optimized_through_the_native_tools() {
+        // The YM2612's cores pace writes, so no register write is ever
+        // dropped from it -- what its files can still lose is delay spelling,
+        // the split wait below re-encoding as one.
         let original = non_opl_vgm(
             0x2C,
             &[
-                0x52, 0x22, 0x08, // LFO
-                0x62, //
-                0x52, 0x22, 0x08, // the same value again -- droppable
+                0x52, 0x30, 0x71, // an operator register
+                0x61, 0x64, 0x00, // wait 100 --
+                0x61, 0xC8, 0x00, // wait 200 -- merged into one wait 300
+                0x52, 0x34, 0x71, // another register, so the file has body
                 0x62, //
                 0x66,
             ],
@@ -274,21 +278,28 @@ mod tests {
 
     #[test]
     fn an_already_optimal_vgm_passes_through_the_tools_unchanged() {
+        // The fixture predates the zero-wait-override rule, so one pass may
+        // still find dead init writes in it; what "already optimal" promises is
+        // that a file the pass cannot improve keeps its exact bytes -- so
+        // optimise once, then require the second pass to change nothing.
         const CLEAN: &[u8] = include_bytes!("../../../tests/lsl3_score_up.vgm");
-        let output = build_pack_zip(
-            &[song("01 Clean.vgm", CLEAN)],
-            false,
-            true,
-            vgms_core::config::OptimizerChoice::Auto,
-            true,
-            true,
-            &never(),
-        )
-        .unwrap()
-        .unwrap();
-        let files = read_zip(&output.bytes);
+        let pack = |bytes: &[u8]| {
+            build_pack_zip(
+                &[song("01 Clean.vgm", bytes)],
+                false,
+                true,
+                vgms_core::config::OptimizerChoice::Auto,
+                true,
+                true,
+                &never(),
+            )
+            .unwrap()
+            .unwrap()
+        };
+        let once = read_zip(&pack(CLEAN).bytes);
+        let twice = read_zip(&pack(&once[0].1).bytes);
         assert_eq!(
-            files[0].1, CLEAN,
+            twice[0].1, once[0].1,
             "an optimal VGM is untouched, byte for byte"
         );
     }
