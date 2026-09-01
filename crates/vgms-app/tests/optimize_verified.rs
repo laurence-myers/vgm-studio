@@ -60,6 +60,25 @@ fn sn76489_tone() -> Vec<u8> {
     bytes
 }
 
+/// The same shape with no repeat in it: every write changes something, and no
+/// two delays are adjacent, so neither phase of the built-in pass has anything
+/// to do and the whole pipeline comes back unchanged.
+fn sn76489_no_repeats() -> Vec<u8> {
+    let full = sn76489_tone();
+    let head = full.len() - 12; // the body is the last twelve bytes
+    let mut bytes = full[..head].to_vec();
+    bytes.extend_from_slice(&[0x50, 0x84]); // ch0 tone period, low
+    bytes.extend_from_slice(&[0x50, 0x20]); // ch0 tone period, high
+    bytes.extend_from_slice(&[0x50, 0x90]); // ch0 attenuation 0 (loud)
+    bytes.extend_from_slice(&[0x61, 0x10, 0x27]); // wait 10000
+    bytes.extend_from_slice(&[0x50, 0x9F]); // ch0 attenuation F (silent)
+    bytes.extend_from_slice(&[0x61, 0x10, 0x27]); // wait 10000
+    bytes.push(0x66);
+    let eof = bytes.len();
+    bytes[0x04..0x08].copy_from_slice(&((eof - 4) as u32).to_le_bytes());
+    bytes
+}
+
 /// The command indices of channel-0 attenuation-0 writes (`0x50 0x90`), in
 /// order. There are two in [`sn76489_tone`]: the live one and the redundant one.
 fn loud_writes(bytes: &[u8]) -> Vec<usize> {
@@ -188,7 +207,10 @@ fn an_audible_change_keeps_the_original() {
 #[test]
 fn nothing_to_gain_reports_unchanged_without_rendering() {
     // No cores needed: the pass shrinks nothing, so the gate never renders.
-    let bytes = sn76489_tone();
+    // The fixture has to be one the *built-in* finishing pass cannot improve
+    // either -- it has covered the SN76489 since part 3a, so `sn76489_tone`'s
+    // repeated attenuation write is no longer nothing to gain.
+    let bytes = sn76489_no_repeats();
     let result = optimize_verified(&bytes, tools_only(), &DoNothing, VerifyOptions::default());
     assert!(
         matches!(result.outcome, VerifiedOutcome::Unchanged),
