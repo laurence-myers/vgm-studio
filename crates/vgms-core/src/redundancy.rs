@@ -55,8 +55,20 @@ use crate::vgm::stream::{ChipTarget, MEMORY_PORT, VgmCommand, VgmStream};
 /// What may become of one write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Verdict {
-    /// Kept whatever the chip already holds.
+    /// Kept whatever the chip already holds, and leaving nothing this map has
+    /// to remember.
     Keep,
+    /// Kept whatever the chip already holds -- but it *does* leave a value in a
+    /// cell the map tracks, so record it.
+    ///
+    /// The distinction matters wherever one cell can be reached by both a
+    /// keep and a latch. The SN76489 is the reason it exists: the same latch
+    /// byte is droppable or not depending on what *follows* it, and a kept one
+    /// that went unrecorded left the shadow register holding a value the chip
+    /// no longer had -- so the next repeat was dropped against a stale cache
+    /// and the tone came out at the wrong pitch (caught by the corpus gate,
+    /// peak 29792).
+    KeepAndRecord { cell: u64, value: u32 },
     /// Dropped when `cell` already holds `value`.
     Latch { cell: u64, value: u32 },
 }
@@ -95,6 +107,14 @@ const fn latch(port: u8, addr: u16, data: u16) -> Decision {
 const fn cell(cell: u64, value: u32) -> Decision {
     Decision {
         verdict: Verdict::Latch { cell, value },
+        forgets_chip: false,
+    }
+}
+
+/// Never dropped, but it still leaves `value` in `cell`.
+const fn keep_recording(cell: u64, value: u32) -> Decision {
+    Decision {
+        verdict: Verdict::KeepAndRecord { cell, value },
         forgets_chip: false,
     }
 }
@@ -176,10 +196,16 @@ pub fn redundant_indices(stream: &VgmStream, loop_at: Option<usize>) -> Vec<usiz
                 *kind != target.kind || *instance != target.instance
             });
         }
-        if let Verdict::Latch { cell, value } = decision.verdict {
-            let key = (target.kind, target.instance, cell);
-            if held.insert(key, value) == Some(value) {
-                redundant.push(index);
+        match decision.verdict {
+            Verdict::Keep => {}
+            Verdict::KeepAndRecord { cell, value } => {
+                held.insert((target.kind, target.instance, cell), value);
+            }
+            Verdict::Latch { cell, value } => {
+                let key = (target.kind, target.instance, cell);
+                if held.insert(key, value) == Some(value) {
+                    redundant.push(index);
+                }
             }
         }
     }
@@ -571,31 +597,43 @@ fn classify(
 /// and this model never disagree about it when it matters.
 fn sn76489(data: u16, aux: &mut Aux, next: Option<u16>) -> Decision {
     let byte = data as u8;
+    // Each register is two cells, because the two byte shapes write different
+    // halves of it: the latch byte the low four bits, a continuation the high
+    // six. Every write records what it left in its half, dropped or not -- a
+    // kept-but-unrecorded latch is what made the shadow register go stale.
+    let low = |reg: u8| indirect_cell(u64::from(reg));
+    let high = |reg: u8| indirect_cell(0x10 | u64::from(reg));
+
     if byte & 0x80 == 0 {
-        // A continuation: six more bits of the last-latched register.
+        // A continuation of the last-latched register.
         return match aux.sn_reg {
-            // The three tone periods. Re-writing one does not restart its
-            // counter.
-            0 | 2 | 4 => cell(
-                indirect_cell(0x10 | u64::from(aux.sn_reg)),
-                u32::from(byte & 0x3F),
-            ),
-            // A continuation of a volume or noise register: rare enough that
-            // upstream warns when it sees one, and not worth modelling.
-            _ => keep(),
+            // The three tone periods take six more bits of frequency.
+            // Re-writing one does not restart its counter.
+            0 | 2 | 4 => cell(high(aux.sn_reg), u32::from(byte & 0x3F)),
+            // On every other register a continuation replaces the low four
+            // bits, as a latch byte does. Rare enough that upstream prints a
+            // warning when it sees one, and on the noise register it reseeds
+            // the shift register -- so it is kept, but it still counts.
+            reg => keep_recording(low(reg), u32::from(byte & 0x0F)),
         };
     }
     let reg = (byte >> 4) & 0x07;
     aux.sn_reg = reg;
-    // Writing the noise register resets the noise shifter even for the value it
-    // already holds.
+    let value = u32::from(byte & 0x0F);
+    // Writing the noise register reseeds the shift register even for the value
+    // it already holds.
     if reg == 0x06 {
-        return keep();
+        return keep_recording(low(reg), value);
     }
+    // A latch byte also *selects* the register a following continuation
+    // extends, so dropping one is only safe when the next byte this chip sees
+    // is another latch. By induction the last latch before any continuation is
+    // therefore always kept, and the chip's register select never diverges from
+    // `aux.sn_reg` where it matters.
     if next.is_none_or(|byte| byte & 0x80 != 0) {
-        cell(indirect_cell(u64::from(reg)), u32::from(byte & 0x0F))
+        cell(low(reg), value)
     } else {
-        keep()
+        keep_recording(low(reg), value)
     }
 }
 
@@ -730,10 +768,18 @@ fn multi_pcm(port: u8, addr: u16, data: u16, aux: &mut Aux) -> Decision {
     }
     match addr {
         0x00 => {
-            // Slot register 4 is KEYONOFF, and a key-on restarts the envelope
-            // however many times it is written.
-            if aux.slot_reg == 0x04 {
-                return keep();
+            match aux.slot_reg {
+                // Slot register 1 selects the *sample*, and loading one writes
+                // registers 6 and 7 (the LFO pair) from the sample's own header
+                // and retriggers the voice if it is playing. So a repeat is not
+                // redundant twice over -- and 6 and 7 are kept beside it,
+                // because this map cannot say what a sample load left in them.
+                // `vgm_cmp` has the same handler, commented out.
+                0x01 | 0x06 | 0x07 => return keep(),
+                // Register 4 is KEYONOFF, and a key-on restarts the envelope
+                // however many times it is written.
+                0x04 => return keep(),
+                _ => {}
             }
             cell(
                 indirect_cell((u64::from(aux.slot) << 8) | u64::from(aux.slot_reg)),
@@ -745,7 +791,10 @@ fn multi_pcm(port: u8, addr: u16, data: u16, aux: &mut Aux) -> Decision {
             latch(port, addr, data)
         }
         0x02 => {
-            aux.slot_reg = data as u8;
+            // The chip clamps the register select to 0-7, so this must too:
+            // an out-of-range select still lands on register 7, and register 7
+            // is one of the ones that must be kept.
+            aux.slot_reg = (data as u8).min(7);
             latch(port, addr, data)
         }
         _ => keep(),

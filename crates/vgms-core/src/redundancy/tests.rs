@@ -198,6 +198,23 @@ fn an_sn76489_latch_a_continuation_depends_on_is_kept() {
     );
 }
 
+/// A latch that is kept still changes the register, so it must be recorded --
+/// otherwise the next repeat is judged against a value the chip no longer
+/// holds and a real frequency change is dropped.
+#[test]
+fn a_kept_sn76489_latch_still_updates_the_shadow_register() {
+    let s = stream(vec![
+        0x50, 0x8F, // 0: tone 0 low nibble F
+        0x50, 0x80, // 1: nibble 0 -- kept, the next byte continues it
+        0x50, 0x3F, // 2: its high bits
+        0x50, 0x8F, // 3: nibble F again. The chip holds 0, so this is real.
+    ]);
+    assert!(
+        redundant_indices(&s, None).is_empty(),
+        "a kept latch must not leave the shadow register holding the old nibble"
+    );
+}
+
 /// The noise register reseeds the shift register on every write.
 #[test]
 fn the_sn76489_noise_register_keeps_every_write() {
@@ -359,20 +376,25 @@ fn the_okim6295_command_port_keeps_every_write() {
     assert_eq!(redundant_indices(&s, None), [3]);
 }
 
-/// The MultiPCM writes through a slot select and a register select, and its
-/// KEYONOFF register restarts the envelope every time it is written.
+/// The MultiPCM writes through a slot select and a register select. Its
+/// KEYONOFF register restarts the envelope every time it is written, and its
+/// sample select reloads the LFO pair from the sample's own header, so neither
+/// is a latch -- but the panpot beside them is.
 #[test]
 fn the_multipcm_writes_through_its_selects() {
     let s = stream(vec![
         0xB5, 0x01, 0x00, // 0: select slot 0
-        0xB5, 0x02, 0x01, // 1: select register 1
+        0xB5, 0x02, 0x00, // 1: select register 0, the panpot
         0xB5, 0x00, 0x40, // 2: write it
         0xB5, 0x01, 0x01, // 3: select slot 1
-        0xB5, 0x00, 0x40, // 4: another slot -- kept
+        0xB5, 0x00, 0x40, // 4: another slot's panpot -- kept
         0xB5, 0x00, 0x40, // 5: now it repeats
-        0xB5, 0x02, 0x04, // 6: select KEYONOFF
-        0xB5, 0x00, 0x80, // 7: key on
-        0xB5, 0x00, 0x80, // 8: key on again -- a second note
+        0xB5, 0x02, 0x01, // 6: select the sample register
+        0xB5, 0x00, 0x10, // 7: load a sample
+        0xB5, 0x00, 0x10, // 8: again -- it would reload the LFO pair
+        0xB5, 0x02, 0x04, // 9: select KEYONOFF
+        0xB5, 0x00, 0x80, // 10: key on
+        0xB5, 0x00, 0x80, // 11: key on again -- a second note
     ]);
     assert_eq!(redundant_indices(&s, None), [5]);
 }
