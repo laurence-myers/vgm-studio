@@ -16,13 +16,21 @@
 //!    subsumed by `vgm_cmp`, but its delay re-encoder is provably byte-minimal
 //!    where `vgm_cmp`'s writer is not, so it reliably shaves a little more.
 //!
-//! **A file every chip of which the built-in covers skips the tools entirely.**
-//! `vgms_core` is the primary optimiser; the tools are the fallback for a file
-//! carrying a chip it does not yet have redundancy rules for. When the built-in
-//! covers the whole file its output is what ships -- pinned byte-for-byte
-//! against the corpus for OPL, and gated on a render-parity check for every
-//! chip -- so the tools' per-chip bugs never touch a file the built-in can do
-//! itself. See `docs/optimizer-2026-08/PLAN.md`.
+//! **A file every chip of which the built-in covers skips `vgm_cmp`.**
+//! `vgms_core` is the primary write-dedup optimiser; `vgm_cmp` is the fallback
+//! for a file carrying a chip it does not have redundancy rules for -- which,
+//! since the coverage widened to every chip the format defines, is no file at
+//! all under `Auto`. When the built-in covers the whole file its output is what
+//! ships -- pinned byte-for-byte against the corpus for OPL, and gated on a
+//! render-parity check for every chip -- so `vgm_cmp`'s per-chip bugs never
+//! touch a file the built-in can do itself.
+//!
+//! That bypass is **`vgm_cmp`'s alone**. `optdac` and `vgm_sro` do work the
+//! built-in does not do at all -- collapsing DAC runs, trimming sample ROMs --
+//! so they are gated on whether the *file* has anything for them (a YM2612, a
+//! ROM-image block), never on chip coverage. Making them share the write-dedup
+//! bypass would have silently retired both the day the last chip earned a rule.
+//! See `docs/optimizer-2026-08/PLAN.md`.
 
 use vgms_core::vgm::{ChipKind, VgmCommand};
 
@@ -230,28 +238,10 @@ pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Opt
     let facts = Facts::read(vgm);
 
     use vgms_core::config::OptimizerChoice;
-    let run_tools = match options.optimizer {
-        // The built-in only: never spawn the tools, whatever the chips.
-        OptimizerChoice::BuiltInOnly => false,
-        // The tools always: the A/B control, re-spelling even covered files.
-        OptimizerChoice::Tools => true,
-        // The routing: tools only for a file the built-in does not cover.
-        OptimizerChoice::Auto => !facts.built_in_covers_all,
-    };
+    // The built-in only: never spawn a tool, whatever the chips.
+    let spawn_tools = options.optimizer != OptimizerChoice::BuiltInOnly;
 
-    if !run_tools {
-        // The built-in pass below does the whole job. Either every chip is one
-        // it covers (Auto), or the caller asked for the built-in only -- for the
-        // chips it covers, running the tools also risks a tool bug it avoids.
-        let why = match options.optimizer {
-            OptimizerChoice::BuiltInOnly => "built-in optimizer selected in Settings",
-            _ => "the built-in optimizer covers every chip here",
-        };
-        stages.push(Stage {
-            name: "vgmtools",
-            outcome: StageOutcome::Skipped(why),
-        });
-    } else {
+    if spawn_tools {
         if options.dac_runs {
             let skip = (!facts.has_ym2612).then_some("no YM2612 to have a DAC");
             run_stage("optdac", skip, &mut bytes, &mut stages, |b| {
@@ -263,19 +253,36 @@ pub fn optimize_vgm_with(vgm: &[u8], options: Options, tools: &dyn Tools) -> Opt
         // bottomless-ROM guard always denies; the per-chip hold-back is lifted
         // when the caller will verify the render (D-orw-8).
         if options.sample_roms {
-            let rom_skip = facts.rom_trim_bottomless.or(if options.speculative {
-                None
-            } else {
-                facts.rom_trim_chip_denied
-            });
+            let rom_skip = (!facts.has_rom_image)
+                .then_some("no sample ROM to trim")
+                .or(facts.rom_trim_bottomless)
+                .or(if options.speculative {
+                    None
+                } else {
+                    facts.rom_trim_chip_denied
+                });
             run_stage("vgm_sro", rom_skip, &mut bytes, &mut stages, |b| {
                 tools.trim_sample_roms(b)
             });
         }
-        // The SAA1099 hold-back, likewise lifted under the render gate.
-        let skip = (!options.speculative && facts.has_saa1099).then_some(SAA1099_HELD_BACK);
+        // The write dedup, which the built-in pass below does itself for every
+        // chip it has rules for. `Tools` runs it regardless -- it is the A/B
+        // control, and re-spells even a covered file. The SAA1099 hold-back is
+        // lifted under a render gate.
+        let skip = if options.optimizer == OptimizerChoice::Auto && facts.built_in_covers_all {
+            Some("the built-in optimizer covers every chip here")
+        } else if !options.speculative && facts.has_saa1099 {
+            Some(SAA1099_HELD_BACK)
+        } else {
+            None
+        };
         run_stage("vgm_cmp", skip, &mut bytes, &mut stages, |b| {
             tools.optimize_writes(b)
+        });
+    } else {
+        stages.push(Stage {
+            name: "vgmtools",
+            outcome: StageOutcome::Skipped("built-in optimizer selected in Settings"),
         });
     }
 
@@ -346,6 +353,13 @@ pub fn optimize_song_logged(
         }
     }
 
+    // Only worth saying when `vgm_cmp` is what handled the writes: these are
+    // the chips *it* copies through, and the built-in has rules for all of
+    // them. Naming them after a pass the built-in did would be a lie.
+    let ran_vgm_cmp = result
+        .stages
+        .iter()
+        .any(|stage| stage.name == "vgm_cmp" && !matches!(stage.outcome, StageOutcome::Skipped(_)));
     let untouched: Vec<&str> = file
         .header
         .chips()
@@ -353,9 +367,9 @@ pub fn optimize_song_logged(
         .filter(|chip| passthrough_chips().contains(&chip.kind))
         .map(|chip| chip.kind.name())
         .collect();
-    if !untouched.is_empty() {
+    if ran_vgm_cmp && !untouched.is_empty() {
         log.push(format!(
-            "{name}: {} not optimized yet -- their writes were all kept",
+            "{name}: {} not optimized by vgm_cmp -- its table has no handler for them",
             untouched.join(", ")
         ));
     }
@@ -441,6 +455,11 @@ struct Facts {
     built_in_covers_all: bool,
     has_ym2612: bool,
     has_saa1099: bool,
+    /// The file carries at least one `0x67` ROM-image block, so there is a
+    /// sample ROM for `vgm_sro` to trim. Without one the tool has nothing to
+    /// do, and since the write dedup stopped gating the whole tool stage that
+    /// is most files.
+    has_rom_image: bool,
     /// Why the sample-ROM trim can never run on this file: a bottomless ROM the
     /// trim's size rounding cannot terminate on. Not lifted by the speculative
     /// mode -- it prevents a hang, not merely a wrong answer.
@@ -465,6 +484,7 @@ impl Facts {
                 built_in_covers_all: false,
                 has_ym2612: true,
                 has_saa1099: true,
+                has_rom_image: true,
                 rom_trim_bottomless: None,
                 rom_trim_chip_denied: Some(
                     "the header could not be read, so its chips are unknown",
@@ -473,14 +493,16 @@ impl Facts {
         };
         let declares = |kind| file.header.chips().iter().any(|chip| chip.kind == kind);
         let chips = file.header.chips();
+        let roms = rom_images(&file);
         Self {
             built_in_covers_all: !chips.is_empty()
                 && chips
                     .iter()
-                    .all(|chip| vgms_core::chip_state::has_latch_rules(chip.kind)),
+                    .all(|chip| vgms_core::redundancy::has_latch_rules(chip.kind)),
             has_ym2612: declares(ChipKind::Ym2612),
             has_saa1099: declares(ChipKind::Saa1099),
-            rom_trim_bottomless: declares_bottomless_rom(&file).then_some(BOTTOMLESS_ROM),
+            has_rom_image: roms.any,
+            rom_trim_bottomless: roms.bottomless.then_some(BOTTOMLESS_ROM),
             rom_trim_chip_denied: ROM_TRIM_DENIED
                 .iter()
                 .find(|(kind, _)| declares(*kind))
@@ -489,29 +511,49 @@ impl Facts {
     }
 }
 
-/// Whether any `0x67` ROM-image block (types `0x80`-`0xBF`, whose payload begins
-/// `[UINT32 total ROM size][UINT32 start address]`) declares a total size at or
-/// above [`ROM_SIZE_CEILING`] -- the size that spins `chip_srom.c`'s mask.
+/// What the file's `0x67` ROM-image blocks (types `0x80`-`0xBF`) amount to.
+struct RomImages {
+    /// There is at least one, so `vgm_sro` has something to trim.
+    any: bool,
+    /// One of them declares a total size at or above [`ROM_SIZE_CEILING`] --
+    /// the size that spins `chip_srom.c`'s mask forever.
+    bottomless: bool,
+}
+
+/// Reads them off the stream.
 ///
-/// `raw_command` hands back the block's whole byte run, so the declared size is
-/// the little-endian `u32` at offset 7 (past `0x67 0x66 <type> <u32 length>`).
-fn declares_bottomless_rom(file: &vgms_core::vgm::file::VgmFile) -> bool {
+/// A ROM-image block's payload begins `[UINT32 total ROM size][UINT32 start
+/// address]`, and `raw_command` hands back the block's whole byte run, so the
+/// declared size is the little-endian `u32` at offset 7 (past
+/// `0x67 0x66 <type> <u32 length>`).
+fn rom_images(file: &vgms_core::vgm::file::VgmFile) -> RomImages {
     let Some(stream) = file.stream() else {
-        return false;
+        return RomImages {
+            any: false,
+            bottomless: false,
+        };
     };
-    (0..stream.len()).any(|index| {
+    let mut images = RomImages {
+        any: false,
+        bottomless: false,
+    };
+    for index in 0..stream.len() {
         let is_rom_image = matches!(
             stream.get(index),
             Some(VgmCommand::DataBlock { kind, .. }) if (0x80..=0xBF).contains(&kind)
         );
-        is_rom_image
-            && stream
-                .raw_command(index)
-                .and_then(|raw| raw.get(7..11))
-                .is_some_and(|size| {
-                    u32::from_le_bytes([size[0], size[1], size[2], size[3]]) >= ROM_SIZE_CEILING
-                })
-    })
+        if !is_rom_image {
+            continue;
+        }
+        images.any = true;
+        images.bottomless |= stream
+            .raw_command(index)
+            .and_then(|raw| raw.get(7..11))
+            .is_some_and(|size| {
+                u32::from_le_bytes([size[0], size[1], size[2], size[3]]) >= ROM_SIZE_CEILING
+            });
+    }
+    images
 }
 
 /// The chips `vgm_cmp` copies through untouched.
@@ -571,20 +613,81 @@ mod tests {
     }
 
     #[test]
-    fn a_readable_synthetic_segapcm_file_falls_back_to_the_tools() {
+    fn a_readable_synthetic_segapcm_file_reads_as_itself() {
         // Guards the fixture itself: a readable SegaPCM declares no YM2612, so
         // `has_ym2612` is false -- the unreadable fallback would set it true (and
         // deny the trim) for the wrong reason, which the ROM tests below rely on
-        // not happening. And SegaPCM has no built-in rule, so it takes the tools.
+        // not happening.
         let facts = Facts::read(&segapcm_vgm(0x0006_0000));
         assert!(
             !facts.has_ym2612,
             "the fixture must be readable, not the fallback"
         );
         assert!(
-            !facts.built_in_covers_all,
-            "SegaPCM has no built-in rule, so the tools are the fallback"
+            facts.built_in_covers_all,
+            "every chip the format defines now has built-in rules"
         );
+        assert!(facts.has_rom_image, "it carries a type-0x80 ROM image");
+    }
+
+    /// The write dedup is the only stage the built-in's coverage bypasses. A
+    /// file it covers end to end still goes to `vgm_sro` for its sample ROM --
+    /// work the built-in does not do at all, and would have lost silently had
+    /// the coverage test gated the whole tool stage.
+    #[test]
+    fn full_coverage_bypasses_vgm_cmp_and_nothing_else() {
+        use crate::ToolOutcome;
+
+        /// A `Tools` that records which stages were asked to run.
+        #[derive(Default)]
+        struct Tap {
+            deduped: std::cell::Cell<bool>,
+            trimmed: std::cell::Cell<bool>,
+        }
+        impl Tools for Tap {
+            fn optimize_writes(&self, _vgm: &[u8]) -> ToolOutcome {
+                self.deduped.set(true);
+                ToolOutcome::Unchanged
+            }
+            fn trim_sample_roms(&self, _vgm: &[u8]) -> ToolOutcome {
+                self.trimmed.set(true);
+                ToolOutcome::Unchanged
+            }
+            fn clean_dac_runs(&self, _vgm: &[u8]) -> ToolOutcome {
+                ToolOutcome::Unchanged
+            }
+        }
+
+        let vgm = segapcm_vgm(0x0006_0000);
+        let tap = Tap::default();
+        let options = Options {
+            // SegaPCM's ROM trim is a chip hold-back; lift it so the question
+            // under test is coverage, not the hold-back.
+            speculative: true,
+            ..Options::default()
+        };
+        let result = optimize_vgm_with(&vgm, options, &tap);
+
+        assert!(!tap.deduped.get(), "the built-in covers every chip here");
+        assert!(tap.trimmed.get(), "but the sample ROM still wants trimming");
+        assert!(
+            result.stages.iter().any(|stage| stage.name == "vgm_cmp"
+                && matches!(stage.outcome, StageOutcome::Skipped(_))),
+            "and the bypass is reported as a skipped vgm_cmp, not a missing stage"
+        );
+    }
+
+    /// A file with no sample ROM does not pay to start `vgm_sro`.
+    #[test]
+    fn a_file_without_a_rom_image_skips_the_trim() {
+        let mut vgm = segapcm_vgm(0x0006_0000);
+        // Truncate to the header plus a bare end-of-data marker.
+        vgm.truncate(0x40);
+        vgm.push(0x66);
+        let eof = u32::try_from(vgm.len()).unwrap() - 4;
+        vgm[0x04..0x08].copy_from_slice(&eof.to_le_bytes());
+
+        assert!(!Facts::read(&vgm).has_rom_image);
     }
 
     #[test]

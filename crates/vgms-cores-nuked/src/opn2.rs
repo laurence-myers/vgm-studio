@@ -497,13 +497,11 @@ mod tests {
         assert_eq!(energy(&after), 0, "a reset CMOS part is bit-silent");
     }
 
-    /// Evidence for the YM2612 optimiser rules deferred to part 3a: when the
-    /// built-in learns to drop YM2612 repeats it must still keep `0x28` (key
-    /// on/off) and `0x2A` (the DAC port). This measures whether each repeat is
-    /// really audible by rendering a stream with the redundant write and one
-    /// without -- a repeat key write is inaudible, a repeat DAC write is not.
-    /// (The chip-agnostic rule is disabled for the YM2612 for now; see
-    /// `chip_state::latch_rule` and `docs/optimizer-2026-08/PLAN.md`.)
+    /// Evidence for the YM2612 optimiser rules in `vgms_core::redundancy`: it
+    /// dedupes `0x28` (key on/off) but never `0x2A` (the DAC port). This
+    /// measures whether each repeat is really audible by rendering a stream
+    /// with the redundant write and one without -- a repeat key write is
+    /// inaudible, a repeat DAC write is not.
     #[test]
     fn a_repeated_key_write_is_inaudible_but_a_repeated_dac_write_is_not() {
         /// Renders a key-on, then optionally repeats `reg`/`value` before

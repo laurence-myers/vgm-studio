@@ -216,14 +216,15 @@ mod tests {
         assert_eq!(reread.chip_list(), "YMZ280B");
     }
 
-    /// A chip with no redundancy rules keeps every write. The export says which
-    /// chip it left alone rather than implying the file was unreadable.
+    /// A chip `vgm_cmp` copies through is optimised in house instead, and the
+    /// export log says so when the tool is the one that ran.
     #[test]
-    fn a_chip_without_rules_ships_verbatim_and_says_so() {
+    fn a_chip_vgm_cmp_passes_through_is_optimized_by_the_built_in() {
         // A K053260: `vgm_cmp` has a handler for it, but it is commented out
-        // (`chip_cmp.c:10` still lists it as a TODO), so every write is kept.
+        // (`chip_cmp.c:10` still lists it as a TODO), so the tool keeps every
+        // write. The built-in has its own rule, so `Auto` shrinks the file.
         let original = non_opl_vgm(0xAC, &[0xBA, 0x01, 0x40, 0xBA, 0x01, 0x40, 0x66]);
-        let output = build_pack_zip(
+        let optimized = build_pack_zip(
             &[song("01 Arcade.vgm", &original)],
             false,
             true,
@@ -234,23 +235,40 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        let files = read_zip(&output.bytes);
-        assert_eq!(files[0].1, original, "byte for byte");
+        let files = read_zip(&optimized.bytes);
         assert!(
-            output
-                .log
-                .iter()
-                .any(|line| line.contains("K053260 not optimized yet")),
-            "log: {:?}",
-            output.log
+            files[0].1.len() < original.len(),
+            "the K053260's repeated write should be dropped in house"
         );
         assert!(
-            !output
+            !optimized
                 .log
                 .iter()
                 .any(|line| line.contains("could not read")),
             "and it is not unreadable: {:?}",
-            output.log
+            optimized.log
+        );
+
+        // Forced onto the tools, the same file names the gap in their table
+        // rather than looking unreadable.
+        let tools = build_pack_zip(
+            &[song("01 Arcade.vgm", &original)],
+            false,
+            true,
+            vgms_core::config::OptimizerChoice::Tools,
+            true,
+            true,
+            &never(),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(
+            tools
+                .log
+                .iter()
+                .any(|line| line.contains("K053260 not optimized by vgm_cmp")),
+            "log: {:?}",
+            tools.log
         );
     }
 

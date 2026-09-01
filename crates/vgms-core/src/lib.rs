@@ -20,6 +20,7 @@ pub mod loopfind;
 pub mod opl_state;
 pub mod optimize;
 pub mod pack;
+pub mod redundancy;
 pub mod regdata;
 pub mod song;
 pub mod split_songs;

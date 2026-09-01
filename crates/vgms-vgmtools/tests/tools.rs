@@ -230,11 +230,13 @@ fn the_pass_shrinks_a_redundant_file_and_keeps_its_timing() {
 }
 
 #[test]
-fn an_opl_file_bypasses_the_tools_entirely() {
+fn an_opl_file_reaches_only_the_built_in() {
     // vgms_core has covered the OPL family from the start and its output is
     // pinned byte-for-byte over the corpus. Running the C tools over an OPL
     // file would re-spell it through a second implementation for no gain, so
-    // the pass must not.
+    // the pass must not. Every tool stage is still *reported*, each with the
+    // reason it had nothing to do -- no YM2612, no sample ROM, and a write
+    // dedup the built-in already covers.
     let mut bytes = vec![0u8; HEADER_LEN];
     bytes[..4].copy_from_slice(b"Vgm ");
     put_u32(&mut bytes, offset::VERSION, 0x161);
@@ -257,10 +259,15 @@ fn an_opl_file_bypasses_the_tools_entirely() {
 
     assert_eq!(
         stages.iter().map(|(name, _)| *name).collect::<Vec<&str>>(),
-        vec!["vgmtools", "built-in"],
-        "an OPL file should reach only the built-in optimiser"
+        vec!["optdac", "vgm_sro", "vgm_cmp", "built-in"],
     );
-    assert!(matches!(stages[0].1, StageOutcome::Skipped(_)));
+    for (name, outcome) in &stages[..3] {
+        assert!(
+            matches!(outcome, StageOutcome::Skipped(_)),
+            "{name} should not have run on an OPL file: {outcome:?}"
+        );
+    }
+    assert!(matches!(stages[2].1, StageOutcome::Skipped(reason) if reason.contains("built-in")));
 }
 
 #[test]
@@ -269,6 +276,10 @@ fn a_file_naming_an_saa1099_is_held_back_from_vgm_cmp() {
     // YM2413's rules -- which dedupe every register, including the SAA1099's
     // envelope registers, where a repeated write is a retrigger rather than a
     // latch. So the file goes through untouched.
+    //
+    // Under `Auto` the built-in's own SAA1099 rule takes the file and vgm_cmp
+    // never sees it; the hold-back is what stands behind the `Tools` A/B
+    // control, so that is what this asks for.
     let mut bytes = vgm_with(&[0x66], 0)[..HEADER_LEN].to_vec();
     put_u32(&mut bytes, offset::SAA1099_CLOCK, 8_000_000);
     put_u32(&mut bytes, offset::VERSION, 0x171);
@@ -276,7 +287,11 @@ fn a_file_naming_an_saa1099_is_held_back_from_vgm_cmp() {
     let eof = bytes.len();
     put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);
 
-    let stages = stage_names(&bytes, Options::default());
+    let options = Options {
+        optimizer: vgms_core::config::OptimizerChoice::Tools,
+        ..Options::default()
+    };
+    let stages = stage_names(&bytes, options);
     let vgm_cmp = stages
         .iter()
         .find(|(name, _)| *name == "vgm_cmp")
@@ -315,6 +330,14 @@ fn a_chip_the_rom_trim_gets_wrong_is_held_back_from_it() {
     let mut bytes = vgm_with(&[0x66], 0)[..HEADER_LEN].to_vec();
     put_u32(&mut bytes, offset::QSOUND_CLOCK, 4_000_000);
     put_u32(&mut bytes, offset::VERSION, 0x161);
+    // A sample ROM for the trim to have designs on, so the hold-back is what
+    // stops it rather than there being nothing to do.
+    let mut payload = 0x0006_0000u32.to_le_bytes().to_vec(); // total ROM size
+    payload.extend_from_slice(&0u32.to_le_bytes()); // start address
+    payload.extend_from_slice(&[0xAB; 4]);
+    bytes.extend_from_slice(&[0x67, 0x66, 0x8F]); // QSound ROM image
+    bytes.extend_from_slice(&(u32::try_from(payload.len()).unwrap()).to_le_bytes());
+    bytes.extend_from_slice(&payload);
     bytes.extend_from_slice(&[0x66]);
     let eof = bytes.len();
     put_u32(&mut bytes, offset::EOF, (eof - offset::EOF) as u32);

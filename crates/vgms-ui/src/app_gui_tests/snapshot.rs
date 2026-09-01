@@ -1353,16 +1353,16 @@ fn a_non_opl_document_can_be_optimized() {
     assert_eq!(harness.state().editor.save_bytes().unwrap(), before);
 }
 
-/// A chip `vgms_core` has no optimise rules for, which the editor optimises
-/// anyway via `vgm_cmp`.
+/// A chip well outside the OPL family, optimised by the editor's action and
+/// undone again.
 ///
-/// The built-in `latch_rule` covers the OPL family and the YM2413, and nothing
-/// else for now (the YM2612 is deferred to part 3a); the YMZ280B here needs
-/// `vgm_cmp`, whose table covers about thirty chips. This is the action
-/// reaching it -- the fallback the built-in leans on for uncovered chips.
+/// The YMZ280B used to need `vgm_cmp`; `vgms_core::redundancy` now classifies
+/// every chip the format defines, so this exercises the whole action -- the
+/// built-in pass, the render gate behind it, and the undo -- on a chip the
+/// built-in only recently learned.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
-fn a_chip_the_built_in_pass_cannot_touch_is_optimized_in_the_editor() {
+fn a_chip_outside_the_opl_family_is_optimized_in_the_editor() {
     use vgms_core::ChipKind;
     fn put_u32(bytes: &mut [u8], at: usize, value: u32) {
         bytes[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -1375,17 +1375,18 @@ fn a_chip_the_built_in_pass_cannot_touch_is_optimized_in_the_editor() {
     bytes.extend_from_slice(&[
         0x5D, 0x01, 0x40, //
         0x62, //
-        0x5D, 0x01, 0x40, // the same value again -- droppable, but only by vgm_cmp
+        0x5D, 0x01, 0x40, // the same value again -- a plain YMZ280B latch
         0x62, 0x66,
     ]);
     let eof = bytes.len();
     put_u32(&mut bytes, 0x04, (eof - 4) as u32);
 
-    // The built-in pass must find nothing here, or the test proves nothing.
+    // The built-in pass finds it, without a child process in sight.
     let mut built_in = vgms_core::vgm::file::read("01 Arcade.vgm", &bytes).unwrap();
-    assert!(
-        built_in.optimize().is_none(),
-        "vgms_core should have no rules for the YMZ280B"
+    assert_eq!(
+        built_in.optimize(),
+        Some(1),
+        "vgms_core should drop the YMZ280B repeat itself"
     );
 
     let file = PickedFile {

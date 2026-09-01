@@ -639,13 +639,13 @@ impl VgmFile {
             .set_loop(at, u32::try_from(samples).unwrap_or(u32::MAX));
     }
 
-    /// Drops the register writes that change nothing, for any chip this app
-    /// has rules for.
+    /// Drops the register writes that change nothing.
     ///
-    /// The `vgm_cmp` pass, generalised. Chips without rules keep every write
-    /// (see [`chip_state::has_latch_rules`]), so running this over an
-    /// unfamiliar file is safe rather than merely likely to be -- worst case it
-    /// does nothing.
+    /// The `vgm_cmp` pass, generalised. Every chip the format defines is
+    /// classified register by register in [`crate::redundancy`], and a register
+    /// that triggers rather than latches keeps every write -- so running this
+    /// over an unfamiliar file is safe rather than merely likely to be; worst
+    /// case it does nothing.
     ///
     /// Both halves run: dropping a write from between two delays leaves them
     /// adjacent, and two waits in a row cost more bytes than one wait of their
@@ -670,7 +670,7 @@ impl VgmFile {
 
         // Phase 1: the redundant writes, which slides the loop past them.
         let stream = work.stream()?;
-        let redundant = chip_state::redundant_indices(stream, work.loop_index());
+        let redundant = crate::redundancy::redundant_indices(stream, work.loop_index());
         if !redundant.is_empty() {
             work.delete_commands(&redundant);
         }
@@ -733,21 +733,6 @@ impl VgmFile {
         );
         crate::loopfind::rank(&mut found);
         found
-    }
-
-    /// The chips in this file that no redundancy rule covers, by name.
-    ///
-    /// What the export log names when it leaves a file alone: "YM2612 is not
-    /// optimised yet" is a better answer than silence, and a much better one
-    /// than a smaller file that plays wrong.
-    #[must_use]
-    pub fn unoptimized_chips(&self) -> Vec<&'static str> {
-        self.header
-            .chips()
-            .iter()
-            .filter(|chip| !chip_state::has_latch_rules(chip.kind))
-            .map(|chip| chip.kind.name())
-            .collect()
     }
 
     /// Puts commands back where they were, for undo.
@@ -1920,8 +1905,8 @@ mod tests {
             offset::DATA_OFFSET,
             (0x100 - offset::DATA_OFFSET) as u32,
         );
-        // OPL2: a chip the built-in still optimises (the YM2612 falls back to
-        // the tools for now -- see chip_state::latch_rule).
+        // A chip the built-in optimiser drops redundant writes from:
+        // OPL2, whose every register is a pure latch (see `crate::redundancy`).
         put_u32(&mut bytes, ChipKind::Ym3812.clock_offset(), 3_579_545);
         bytes.extend_from_slice(&[
             0x5A, 0x20, 0x08, // 0: a write
