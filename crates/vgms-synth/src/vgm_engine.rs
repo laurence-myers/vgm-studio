@@ -201,9 +201,6 @@ pub struct VgmEngine {
     /// register back from the core; the shadow is that value without a read
     /// path through the FFI.
     huc6280_channel: [u8; 2],
-    /// Whether every write takes the immediate path. See
-    /// [`set_immediate_writes`](Self::set_immediate_writes).
-    immediate_writes: bool,
     clock: FrameClock,
     /// The next command to execute.
     index: usize,
@@ -346,7 +343,6 @@ impl VgmEngine {
             due: Vec::new(),
             pcm_pos: 0,
             huc6280_channel: [0, 0],
-            immediate_writes: false,
             clock: FrameClock::new(output_rate, vgms_core::vgm::VGM_SAMPLE_RATE),
             index: 0,
             pending: 0,
@@ -824,28 +820,8 @@ impl VgmEngine {
         }
     }
 
-    /// Delivers every write on the immediate path, as a seek's replay does.
-    ///
-    /// Some cores deliberately *spread* a burst of writes over the samples that
-    /// follow it, because the real chip stalls its bus after each one:
-    /// Nuked-OPL3 has `OPL3_WriteRegBuffered`, which the OPL adapter uses for
-    /// ordinary playback and bypasses for a seek's replay. That fidelity makes
-    /// the *number* of writes audible, which is fine for playback and wrong for
-    /// anything asking "did removing a redundant write change the chip's
-    /// state?" -- an optimiser's render gate, most of all, which would otherwise
-    /// see every dropped write as a corruption.
-    ///
-    /// So this is off for playback and on for verification. It reaches only the
-    /// cores that distinguish the two paths (the OPL family, through
-    /// `OplCoreAdapter`); a core whose `replay_write` is the default forwards to
-    /// `write` and is unaffected.
-    pub const fn set_immediate_writes(&mut self, immediate: bool) {
-        self.immediate_writes = immediate;
-    }
-
     /// Routes a register write to the core that owns it.
     fn write(&mut self, target: ChipTarget, addr: u16, data: u16, replay: bool) {
-        let replay = replay || self.immediate_writes;
         // Shadow the HuC6280's channel-select register on the way past, so a
         // DAC stream can restore the song's selected channel after its own
         // channel switch (the reference reads the register back instead).
