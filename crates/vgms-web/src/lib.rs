@@ -18,7 +18,10 @@ mod generations;
 
 #[cfg(target_arch = "wasm32")]
 mod js;
-#[cfg(target_arch = "wasm32")]
+// The media-session integration wraps the release app; an `e2e` build wraps the
+// app in the test hook instead (see `runner`), so it is never used -- and so not
+// compiled -- there.
+#[cfg(all(target_arch = "wasm32", not(feature = "e2e")))]
 mod media;
 #[cfg(target_arch = "wasm32")]
 pub mod optimize_tools;
