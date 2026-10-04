@@ -10,7 +10,6 @@ impl VgmStudioApp {
                 source,
                 num_buckets: waveform::NUM_BUCKETS,
                 sample_rate: self.config.audio.frequency,
-                resampling: self.resample_mode(),
             },
             debounce,
         );

@@ -162,7 +162,11 @@ impl DcBlocker {
     fn new(sample_rate: u32) -> Self {
         let rate = sample_rate.max(1) as f32;
         Self {
-            r: (-2.0 * std::f32::consts::PI * DC_CUTOFF_HZ / rate).exp(),
+            // The first-order form of `exp(-2 pi fc / fs)`: indistinguishable at
+            // a cutoff this far below the rate, and built from IEEE-exact
+            // operations only -- `exp` comes from the platform's libm, and the
+            // snapshot baselines must render alike on every target.
+            r: 1.0 - 2.0 * std::f32::consts::PI * DC_CUTOFF_HZ / rate,
             previous_in: [0.0; 2],
             previous_out: [0.0; 2],
         }
@@ -206,7 +210,6 @@ pub fn render_vgm_waveform_progressive(
     file: Arc<VgmFile>,
     num_buckets: usize,
     sample_rate: u32,
-    resampling: crate::resample::ResampleMode,
     keep_going: &mut dyn FnMut() -> bool,
     on_update: &mut dyn FnMut(Vec<WaveformBucket>),
 ) -> bool {
@@ -227,15 +230,22 @@ pub fn render_vgm_waveform_progressive(
     // The waveform is drawn with the *fastest* core the build has for each chip,
     // not the user's playback pick: a below-realtime LLE core would make this
     // offline render crawl, while the coarse min/max buckets hide any accuracy
-    // difference. The resampling choice still follows playback, since the picture
-    // shows what playback would sound like -- drawing from a wholly different
-    // render than the one being heard is the kind of quiet inconsistency that
-    // eventually confuses a bug report.
+    // difference.
+    //
+    // The same goes for resampling: always linear, whatever playback uses. Sinc
+    // spends ~36 taps per *source* frame, so on a fast chip it rivals the
+    // emulation itself -- measured over a corpus sample, linear cut the render's
+    // CPU by a quarter overall and by 2-4x on the SN76489, AY8910 and YMZ280B.
+    // Its box average does shave the peaks of bright content by 10-15%; the
+    // buckets are auto-scaled, so that is a slightly different picture of the
+    // same song, not a wrong one. The rate still follows playback: a lower one
+    // saves little more, and would pile a DAC stream's writes into single frames
+    // so the chip plays only the last of each pile.
     let choices =
         crate::registry::fastest_choices(file.header.chips().iter().map(|chip| chip.kind));
     crate::registry::with_render_choices(Some(choices), move || {
         let mut engine = VgmEngine::new(file, sample_rate);
-        engine.set_resample_mode(resampling);
+        engine.set_resample_mode(crate::resample::ResampleMode::Linear);
         let mut dc_blocker = DcBlocker::new(sample_rate);
         let mut buffer = vec![0i16; 4096 * 2];
         loop {
@@ -264,14 +274,12 @@ pub fn render_vgm_waveform(
     file: Arc<VgmFile>,
     num_buckets: usize,
     sample_rate: u32,
-    resampling: crate::resample::ResampleMode,
 ) -> Vec<WaveformBucket> {
     let mut last = Vec::new();
     render_vgm_waveform_progressive(
         file,
         num_buckets,
         sample_rate,
-        resampling,
         &mut || true,
         &mut |buckets| {
             last = buckets;

@@ -483,13 +483,11 @@ pub fn encode_request(request: &TaskRequest) -> Result<Vec<u8>> {
             source,
             num_buckets,
             sample_rate,
-            resampling,
         } => {
             writer.u8(0);
             write_audio_source(&mut writer, source)?;
             writer.usize(*num_buckets);
             writer.u32(*sample_rate);
-            write_resample(&mut writer, *resampling);
         }
         TaskRequest::RenderWav {
             source,
@@ -617,7 +615,6 @@ pub fn decode_request(input: &[u8]) -> Result<TaskRequest> {
             source: read_audio_source(&mut reader)?,
             num_buckets: reader.usize("num_buckets")?,
             sample_rate: reader.u32("sample_rate")?,
-            resampling: read_resample(&mut reader)?,
         },
         1 => {
             let source = match reader.u8("wav-source")? {
@@ -1089,13 +1086,11 @@ mod tests {
                 source: AudioSource::Dro(sample_song()),
                 num_buckets: 4096,
                 sample_rate: 48_000,
-                resampling: ResampleMode::Sinc,
             },
             TaskRequest::RenderWaveform {
                 source: AudioSource::Vgm(sample_vgm()),
                 num_buckets: 512,
                 sample_rate: 44_100,
-                resampling: ResampleMode::Linear,
             },
             // A non-empty core map on this RenderWav case, empty on the next, so
             // both branches of the core-choices codec are exercised.

@@ -60,9 +60,6 @@ pub enum TaskRequest {
         source: AudioSource,
         num_buckets: usize,
         sample_rate: u32,
-        /// How a non-OPL engine reaches the output rate; ignored by an OPL
-        /// source, whose engine renders at the chip's own rate.
-        resampling: vgms_synth::resample::ResampleMode,
     },
     RenderWav {
         source: WavSource,
@@ -72,8 +69,7 @@ pub enum TaskRequest {
         mix: VgmRenderMix,
         sample_rate: u32,
         bit_depth: u16,
-        /// As on [`TaskRequest::RenderWaveform`]: the export honours the same
-        /// resampling choice playback does.
+        /// The export honours the same resampling choice playback does.
         resampling: vgms_synth::resample::ResampleMode,
         /// The per-render core choices (slot slug -> core short-name), seeded
         /// from Settings but never persisted: the render is wrapped in
@@ -105,8 +101,8 @@ pub enum TaskRequest {
     VolumeScan {
         source: AudioSource,
         sample_rate: u32,
-        /// As on [`TaskRequest::RenderWaveform`]: how a non-OPL engine reaches
-        /// the output rate; ignored by an OPL source.
+        /// How a non-OPL engine reaches the output rate; ignored by an OPL
+        /// source, whose engine renders at the chip's own rate.
         resampling: vgms_synth::resample::ResampleMode,
     },
     /// Measures the peak of every `(file_name, source)` at `sample_rate`, for
@@ -307,7 +303,6 @@ pub fn run_task(
             source,
             num_buckets,
             sample_rate,
-            resampling,
         } => {
             // A waveform is a picture of the audio, so it comes from the one
             // engine that makes that audio -- a DRO through its projection.
@@ -316,7 +311,6 @@ pub fn run_task(
                 file,
                 *num_buckets,
                 *sample_rate,
-                *resampling,
                 &mut || !is_cancelled(),
                 &mut |buckets| emit(TaskResult::Waveform(buckets)),
             );
@@ -572,7 +566,6 @@ mod tests {
             source: AudioSource::Dro(Arc::new(song)),
             num_buckets: 32,
             sample_rate: 48_000,
-            resampling: vgms_synth::resample::ResampleMode::Sinc,
         }
     }
 
@@ -588,8 +581,7 @@ mod tests {
         // The task projects the DRO and renders through the one engine, so the
         // oracle is that same projected waveform.
         let file = Arc::new(opl_song_to_vgm_file(&song).unwrap());
-        let expected =
-            render_vgm_waveform(file, 32, 48_000, vgms_synth::resample::ResampleMode::Sinc);
+        let expected = render_vgm_waveform(file, 32, 48_000);
         let results = collect(&request(song), || false);
         // Progressive snapshots first, the finished buckets last.
         assert!(!results.is_empty());

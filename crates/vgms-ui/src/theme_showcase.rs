@@ -24,7 +24,6 @@ use vgms_core::DroSong;
 use vgms_core::config::ThemeChoice;
 use vgms_core::convert::opl_song_to_vgm_file;
 use vgms_synth::render_vgm_waveform;
-use vgms_synth::resample::ResampleMode;
 
 use crate::dialogs::GotoDialog;
 use crate::editor::Editor;
@@ -67,7 +66,7 @@ impl ShowcaseState {
         // 49716), so the wave is bit-faithful to a real render and stable across
         // platforms, unlike an f32 synthetic.
         let file = Arc::new(opl_song_to_vgm_file(&song).expect("the tone fixture projects"));
-        let buckets = render_vgm_waveform(file, NUM_BUCKETS, FREQUENCY, ResampleMode::Sinc);
+        let buckets = render_vgm_waveform(file, NUM_BUCKETS, FREQUENCY);
 
         let mut editor = Editor::new();
         editor.load(picked(&song)).expect("the tone fixture parses");

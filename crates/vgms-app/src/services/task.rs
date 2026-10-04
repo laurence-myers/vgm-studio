@@ -247,7 +247,6 @@ mod tests {
             source: vgms_synth::AudioSource::Dro(Arc::new(song)),
             num_buckets: 4,
             sample_rate: 48_000,
-            resampling: vgms_synth::resample::ResampleMode::Sinc,
         }
     }
 
