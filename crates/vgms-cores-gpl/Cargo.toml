@@ -11,6 +11,19 @@ license = "GPL-2.0-or-later"
 authors.workspace = true
 repository.workspace = true
 
+[features]
+# Nuked-OPL2-Lite is always built. The other cores are on by default, and each
+# group is a feature, so a consumer that needs only an OPL2 model (an OPL-only
+# web player) takes `default-features = false`: its build then compiles one C
+# file, needs one submodule, and links none of the die simulations.
+default = ["opll", "psg", "lle"]
+# Nuked-OPLL (YM2413).
+opll = []
+# Nuked-PSG (SN76489, the Sega VDP part).
+psg = []
+# The die simulations: YM2151, YM2203, YM2608, YM2612, YMF276, YM3812, YMF262.
+lle = []
+
 [dependencies]
 vgms-core.workspace = true
 vgms-synth.workspace = true

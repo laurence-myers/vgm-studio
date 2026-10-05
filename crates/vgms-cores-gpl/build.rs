@@ -2,6 +2,10 @@
 //!
 //! Separate from `vgms-cores-nuked` only because these upstreams are GPL and
 //! that crate's are LGPL, so the distinction survives into the metadata.
+//!
+//! Nuked-OPL2-Lite is always compiled; the other cores follow the crate's
+//! features (`opll`, `psg`, `lle`), so an OPL2-only build needs only the
+//! `nuked-opl2-lite` submodule.
 
 use std::path::{Path, PathBuf};
 
@@ -12,100 +16,76 @@ fn main() {
     println!("cargo::rerun-if-changed=shim");
     println!("cargo::rerun-if-changed=build.rs");
 
-    let opll = PathBuf::from(UPSTREAM).join("nuked-opll");
-    require_submodule(&opll, "nuked-opll", "opll.c");
-    for file in ["opll.c", "opll.h"] {
-        println!("cargo::rerun-if-changed={}", opll.join(file).display());
-    }
-
-    let psg = PathBuf::from(UPSTREAM).join("nuked-psg");
-    require_submodule(&psg, "nuked-psg", "ympsg.c");
-    for file in ["ympsg.c", "ympsg.h"] {
-        println!("cargo::rerun-if-changed={}", psg.join(file).display());
-    }
-
-    let opm_lle = PathBuf::from(UPSTREAM).join("ym2151-lle");
-    require_submodule(&opm_lle, "ym2151-lle", "fmopm.c");
-    for file in ["fmopm.c", "fmopm.h"] {
-        println!("cargo::rerun-if-changed={}", opm_lle.join(file).display());
-    }
-
-    let opl2_lite = PathBuf::from(UPSTREAM).join("nuked-opl2-lite");
-    require_submodule(&opl2_lite, "nuked-opl2-lite", "opl2.c");
-    for file in ["opl2.c", "opl2.h"] {
-        println!("cargo::rerun-if-changed={}", opl2_lite.join(file).display());
-    }
-
-    let opl2_lle = PathBuf::from(UPSTREAM).join("ym3812-lle");
-    require_submodule(&opl2_lle, "ym3812-lle", "fmopl2.c");
-    for file in ["fmopl2.c", "fmopl2.h"] {
-        println!("cargo::rerun-if-changed={}", opl2_lle.join(file).display());
-    }
-
-    let opl3_lle = PathBuf::from(UPSTREAM).join("ymf262-lle");
-    require_submodule(&opl3_lle, "ymf262-lle", "fmopl3.c");
-    for file in ["fmopl3.c", "fmopl3.h"] {
-        println!("cargo::rerun-if-changed={}", opl3_lle.join(file).display());
-    }
-
-    let opn_lle = PathBuf::from(UPSTREAM).join("ym2203-lle");
-    require_submodule(&opn_lle, "ym2203-lle", "fmopn.c");
-    for file in ["fmopn.c", "fmopn.h"] {
-        println!("cargo::rerun-if-changed={}", opn_lle.join(file).display());
-    }
-
-    let opn2l_lle = PathBuf::from(UPSTREAM).join("ymf276-lle");
-    require_submodule(&opn2l_lle, "ymf276-lle", "fmopn2.c");
-    for file in ["fmopn2.c", "fmopn2.h"] {
-        println!("cargo::rerun-if-changed={}", opn2l_lle.join(file).display());
-    }
-
-    // The OPN-family dies: one implementation compiled per chip macro. The
-    // 2612 and 2608 dies are wrapped; the 2610 configuration does not compile
-    // upstream (unguarded 2608-only GPIO writes at the pin), so it waits.
-    let opna_lle = PathBuf::from(UPSTREAM).join("ym2608-lle");
-    require_submodule(&opna_lle, "ym2608-lle", "fmopna_2612.c");
-    for file in [
-        "fmopna_2612.c",
-        "fmopna_2612.h",
-        "fmopna_2608.c",
-        "fmopna_2608.h",
-        "fmopna_impl.c",
-        "fmopna_impl.h",
-        "fmopna_rom.h",
-    ] {
-        println!("cargo::rerun-if-changed={}", opna_lle.join(file).display());
-    }
-
     let mut build = cc::Build::new();
+
+    let opl2_lite = upstream("nuked-opl2-lite", "opl2.c", &["opl2.c", "opl2.h"]);
+    build.file(opl2_lite.join("opl2.c")).include(&opl2_lite);
+
+    if feature("OPLL") {
+        let opll = upstream("nuked-opll", "opll.c", &["opll.c", "opll.h"]);
+        build
+            .file(opll.join("opll.c"))
+            .include(&opll)
+            .define("VGMS_CORE_OPLL", None);
+    }
+
+    if feature("PSG") {
+        let psg = upstream("nuked-psg", "ympsg.c", &["ympsg.c", "ympsg.h"]);
+        build
+            .file(psg.join("ympsg.c"))
+            .include(&psg)
+            .define("VGMS_CORE_PSG", None);
+    }
+
+    if feature("LLE") {
+        let opm_lle = upstream("ym2151-lle", "fmopm.c", &["fmopm.c", "fmopm.h"]);
+        let opl2_lle = upstream("ym3812-lle", "fmopl2.c", &["fmopl2.c", "fmopl2.h"]);
+        let opl3_lle = upstream("ymf262-lle", "fmopl3.c", &["fmopl3.c", "fmopl3.h"]);
+        let opn_lle = upstream("ym2203-lle", "fmopn.c", &["fmopn.c", "fmopn.h"]);
+        let opn2l_lle = upstream("ymf276-lle", "fmopn2.c", &["fmopn2.c", "fmopn2.h"]);
+        // The OPN-family dies: one implementation compiled per chip macro. The
+        // 2612 and 2608 dies are wrapped; the 2610 configuration does not
+        // compile upstream (unguarded 2608-only GPIO writes at the pin), so it
+        // waits.
+        let opna_lle = upstream(
+            "ym2608-lle",
+            "fmopna_2612.c",
+            &[
+                "fmopna_2612.c",
+                "fmopna_2612.h",
+                "fmopna_2608.c",
+                "fmopna_2608.h",
+                "fmopna_impl.c",
+                "fmopna_impl.h",
+                "fmopna_rom.h",
+            ],
+        );
+
+        build
+            .file(opm_lle.join("fmopm.c"))
+            .file(opl2_lle.join("fmopl2.c"))
+            .file(opl3_lle.join("fmopl3.c"))
+            .file(opn_lle.join("fmopn.c"))
+            .file(opn2l_lle.join("fmopn2.c"))
+            .file(opna_lle.join("fmopna_2612.c"))
+            .file(opna_lle.join("fmopna_2608.c"))
+            .file("shim/lle_opm.c")
+            .file("shim/lle_opl2.c")
+            .file("shim/lle_opl3.c")
+            .file("shim/lle_opn.c")
+            .file("shim/lle_opn2.c")
+            .file("shim/lle_opn2l.c")
+            .file("shim/lle_opna.c")
+            .include(&opm_lle)
+            .include(&opl2_lle)
+            .include(&opl3_lle)
+            .include(&opn_lle)
+            .include(&opn2l_lle)
+            .include(&opna_lle);
+    }
+
     build
-        .file(opll.join("opll.c"))
-        .file(psg.join("ympsg.c"))
-        .file(opm_lle.join("fmopm.c"))
-        .file(opl2_lite.join("opl2.c"))
-        .file(opl2_lle.join("fmopl2.c"))
-        .file(opl3_lle.join("fmopl3.c"))
-        .file(opn_lle.join("fmopn.c"))
-        .file(opn2l_lle.join("fmopn2.c"))
-        .file(opna_lle.join("fmopna_2612.c"))
-        .file(opna_lle.join("fmopna_2608.c"))
         .file("shim/layout.c")
-        .file("shim/lle_opm.c")
-        .file("shim/lle_opl2.c")
-        .file("shim/lle_opl3.c")
-        .file("shim/lle_opn.c")
-        .file("shim/lle_opn2.c")
-        .file("shim/lle_opn2l.c")
-        .file("shim/lle_opna.c")
-        .include(&opll)
-        .include(&psg)
-        .include(&opm_lle)
-        .include(&opl2_lite)
-        .include(&opl2_lle)
-        .include(&opl3_lle)
-        .include(&opn_lle)
-        .include(&opn2l_lle)
-        .include(&opna_lle)
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.
         .include("shim")
@@ -124,6 +104,23 @@ fn main() {
     }
 
     build.compile("gpl_cores");
+}
+
+/// Whether the crate feature `name` (upper case, as Cargo spells it in the
+/// environment) is on.
+fn feature(name: &str) -> bool {
+    std::env::var_os(format!("CARGO_FEATURE_{name}")).is_some()
+}
+
+/// The directory of submodule `name`, checked for `marker` and watched for
+/// changes to `files`.
+fn upstream(name: &str, marker: &str, files: &[&str]) -> PathBuf {
+    let path = PathBuf::from(UPSTREAM).join(name);
+    require_submodule(&path, name, marker);
+    for file in files {
+        println!("cargo::rerun-if-changed={}", path.join(file).display());
+    }
+    path
 }
 
 /// Fails with an instruction rather than a missing-file error.

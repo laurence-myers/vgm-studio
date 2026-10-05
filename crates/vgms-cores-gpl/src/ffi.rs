@@ -6,23 +6,48 @@
 
 use std::ffi::c_void;
 
+// One block for each group of cores, gated as `build.rs` compiles them: a
+// declaration without its C would fail to link only when something calls it,
+// so the gate keeps the two in step by construction.
+
 unsafe extern "C" {
     // Ours (shim/layout.c), so the size comes from the compiler.
+    fn vgms_opl2lite_sizeof() -> usize;
+    fn vgms_opl2lite_alignof() -> usize;
+
+    fn OPL2_Reset(chip: *mut c_void, samplerate: u32);
+    fn OPL2_WriteReg(chip: *mut c_void, reg: u8, data: u8);
+    fn OPL2_WriteRegBuffered(chip: *mut c_void, reg: u8, data: u8);
+    fn OPL2_GenerateResampled(chip: *mut c_void, sample: *mut i16);
+}
+
+#[cfg(feature = "opll")]
+unsafe extern "C" {
+    // Ours (shim/layout.c).
     fn vgms_opll_sizeof() -> usize;
     fn vgms_opll_alignof() -> usize;
-    fn vgms_ympsg_sizeof() -> usize;
-    fn vgms_ympsg_alignof() -> usize;
 
     fn OPLL_Reset(chip: *mut c_void, chip_type: u32);
     fn OPLL_Clock(chip: *mut c_void, buffer: *mut i32);
     fn OPLL_Write(chip: *mut c_void, port: u32, data: u8);
+}
+
+#[cfg(feature = "psg")]
+unsafe extern "C" {
+    // Ours (shim/layout.c).
+    fn vgms_ympsg_sizeof() -> usize;
+    fn vgms_ympsg_alignof() -> usize;
 
     fn YMPSG_Init(chip: *mut c_void);
     fn YMPSG_Write(chip: *mut c_void, data: u8);
     fn YMPSG_Clock(chip: *mut c_void);
     fn YMPSG_GetOutput(chip: *mut c_void) -> f32;
     fn YMPSG_SetMute(chip: *mut c_void, mute: u8);
+}
 
+#[cfg(feature = "lle")]
+unsafe extern "C" {
+    // Ours (shim/lle_*.c).
     fn vgms_fmopm_sizeof() -> usize;
     fn vgms_fmopm_alignof() -> usize;
     fn vgms_fmopm_set_pins(
@@ -53,14 +78,6 @@ unsafe extern "C" {
     fn vgms_fmopna2612_out_mol(chip: *const c_void) -> i32;
     fn vgms_fmopna2612_out_mor(chip: *const c_void) -> i32;
     fn FMOPNA_2612_Clock(chip: *mut c_void, clk: i32);
-
-    fn vgms_opl2lite_sizeof() -> usize;
-    fn vgms_opl2lite_alignof() -> usize;
-
-    fn OPL2_Reset(chip: *mut c_void, samplerate: u32);
-    fn OPL2_WriteReg(chip: *mut c_void, reg: u8, data: u8);
-    fn OPL2_WriteRegBuffered(chip: *mut c_void, reg: u8, data: u8);
-    fn OPL2_GenerateResampled(chip: *mut c_void, sample: *mut i16);
 
     fn vgms_fmopl2_sizeof() -> usize;
     fn vgms_fmopl2_alignof() -> usize;
@@ -123,9 +140,11 @@ unsafe extern "C" {
 }
 
 /// Upstream's `opll_type_ym2413`: the Yamaha part a VGM means by "YM2413".
+#[cfg(feature = "opll")]
 const OPLL_TYPE_YM2413: u32 = 0x00;
 /// Upstream's `opll_type_ds1001`: Konami's VRC VII, which a VGM signals with
 /// bit 31 of the clock.
+#[cfg(feature = "opll")]
 const OPLL_TYPE_DS1001: u32 = 0x01;
 
 /// Zeroed bytes sized for the upstream chip struct.
@@ -167,11 +186,13 @@ impl std::fmt::Debug for OpaqueChip {
 unsafe impl Send for OpaqueChip {}
 
 /// A Nuked-OPLL chip.
+#[cfg(feature = "opll")]
 #[derive(Debug)]
 pub(crate) struct OpllChip {
     state: OpaqueChip,
 }
 
+#[cfg(feature = "opll")]
 impl OpllChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
@@ -213,11 +234,13 @@ impl OpllChip {
 }
 
 /// A Nuked-PSG chip: the SN76489 as Sega's VDPs integrate it.
+#[cfg(feature = "psg")]
 #[derive(Debug)]
 pub(crate) struct PsgChip {
     state: OpaqueChip,
 }
 
+#[cfg(feature = "psg")]
 impl PsgChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
@@ -274,6 +297,7 @@ impl PsgChip {
 /// DAC output. Everything above wire level -- write pacing, reset timing,
 /// the YM3012 float decode -- belongs to the wrapper, which is the point of
 /// an LLE core: nothing between the VGM and the netlist but electricity.
+#[cfg(feature = "lle")]
 #[derive(Debug)]
 pub(crate) struct OpmLleChip {
     state: OpaqueChip,
@@ -283,6 +307,7 @@ pub(crate) struct OpmLleChip {
 
 /// The non-clock input pins. `ic`/`cs`/`wr` are active-low levels, kept
 /// electrical here so the driver reads like a schematic.
+#[cfg(feature = "lle")]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LlePins {
     pub ym2164: bool,
@@ -297,6 +322,7 @@ pub(crate) struct LlePins {
     pub data: u8,
 }
 
+#[cfg(feature = "lle")]
 impl Default for LlePins {
     fn default() -> Self {
         Self {
@@ -310,6 +336,7 @@ impl Default for LlePins {
     }
 }
 
+#[cfg(feature = "lle")]
 impl OpmLleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
@@ -421,6 +448,7 @@ impl Opl2LiteChip {
 /// data) minus the variant pin, and a mono serial DAC -- the YM3014B's
 /// floating-point stream on `MO`, framed by the `SH` strobe and paced by the
 /// `SY` bit clock.
+#[cfg(feature = "lle")]
 #[derive(Debug)]
 pub(crate) struct Opl2LleChip {
     state: OpaqueChip,
@@ -428,6 +456,7 @@ pub(crate) struct Opl2LleChip {
 
 /// The non-clock input pins of the OPL2 bus. `ic`/`cs`/`wr` are active-low
 /// levels, as electrical as [`LlePins`].
+#[cfg(feature = "lle")]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Opl2Pins {
     /// Reset, active low.
@@ -441,6 +470,7 @@ pub(crate) struct Opl2Pins {
     pub data: u8,
 }
 
+#[cfg(feature = "lle")]
 impl Default for Opl2Pins {
     fn default() -> Self {
         Self {
@@ -453,6 +483,7 @@ impl Default for Opl2Pins {
     }
 }
 
+#[cfg(feature = "lle")]
 impl Opl2LleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
@@ -511,12 +542,14 @@ impl Opl2LleChip {
 /// bank) and a four-channel serial DAC -- the YAC512's 16-bit linear words on
 /// two data lines (`DOAB` time-multiplexes the A and B words, `DOCD` the C
 /// and D), paced by the `SY` bit clock and framed by the two sample strobes.
+#[cfg(feature = "lle")]
 #[derive(Debug)]
 pub(crate) struct Opl3LleChip {
     state: OpaqueChip,
 }
 
 /// The OPL3 serial DAC pins after a clock edge.
+#[cfg(feature = "lle")]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Opl3DacPins {
     /// The data line carrying the A and B words.
@@ -531,6 +564,7 @@ pub(crate) struct Opl3DacPins {
     pub smpbd: bool,
 }
 
+#[cfg(feature = "lle")]
 impl Opl3LleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
@@ -592,11 +626,13 @@ impl Opl3LleChip {
 /// with the SSG's GPIO ports held low, a mono FM serial DAC (the YM3014's
 /// float stream on `OPO`, framed by `SH`, paced by `SY`), and the three SSG
 /// channels on analog pins the shim sums.
+#[cfg(feature = "lle")]
 #[derive(Debug)]
 pub(crate) struct OpnLleChip {
     state: OpaqueChip,
 }
 
+#[cfg(feature = "lle")]
 impl OpnLleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
@@ -647,12 +683,14 @@ impl OpnLleChip {
 /// The OPN2 bus (two address lines), audio leaving on the YMF276's external
 /// serial DAC interface: data on `SO` (MSB first), paced by the `BCO` bit
 /// clock, framed by the `WCO` word clock, sides told apart by `LRO`.
+#[cfg(feature = "lle")]
 #[derive(Debug)]
 pub(crate) struct Opn2lLleChip {
     state: OpaqueChip,
 }
 
 /// The YMF276 serial DAC pins after a clock edge.
+#[cfg(feature = "lle")]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Opn2lDacPins {
     /// The bit clock.
@@ -665,6 +703,7 @@ pub(crate) struct Opn2lDacPins {
     pub so: bool,
 }
 
+#[cfg(feature = "lle")]
 impl Opn2lLleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
@@ -723,6 +762,7 @@ impl Opn2lLleChip {
 /// lines instead of one, and the DAC leaves on two parallel time-multiplexed
 /// 9-bit pins rather than a serial stream -- the ladder asymmetry included,
 /// because the die computes it.
+#[cfg(feature = "lle")]
 #[derive(Debug)]
 pub(crate) struct Opn2LleChip {
     state: OpaqueChip,
@@ -730,6 +770,7 @@ pub(crate) struct Opn2LleChip {
 
 /// The non-clock input pins of the OPN2 bus. `ic`/`cs`/`wr` are active-low
 /// levels, as electrical as [`LlePins`].
+#[cfg(feature = "lle")]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Opn2Pins {
     /// Reset, active low.
@@ -745,6 +786,7 @@ pub(crate) struct Opn2Pins {
     pub data: u8,
 }
 
+#[cfg(feature = "lle")]
 impl Default for Opn2Pins {
     fn default() -> Self {
         Self {
@@ -758,6 +800,7 @@ impl Default for Opn2Pins {
     }
 }
 
+#[cfg(feature = "lle")]
 impl Opn2LleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
@@ -809,12 +852,14 @@ impl Opn2LleChip {
 /// for the die's own writes -- while the rhythm ROM is internal to the
 /// decap and needs no pins at all. FM, rhythm and ADPCM leave on the
 /// serial DAC; the SSG on the analog pin.
+#[cfg(feature = "lle")]
 #[derive(Debug)]
 pub(crate) struct OpnaLleChip {
     state: OpaqueChip,
 }
 
 /// The DRAM bus as the die presents it after a clock.
+#[cfg(feature = "lle")]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct DramBus {
     /// The 8-bit multiplexed address/data lines.
@@ -831,6 +876,7 @@ pub(crate) struct DramBus {
     pub reading: bool,
 }
 
+#[cfg(feature = "lle")]
 impl OpnaLleChip {
     pub(crate) fn new() -> Self {
         // SAFETY: both shims return a compile-time constant and touch nothing.
@@ -915,16 +961,33 @@ mod tests {
     #[test]
     fn the_shim_reports_a_real_size() {
         // SAFETY: both return compile-time constants.
+        let (size, align) = unsafe { (vgms_opl2lite_sizeof(), vgms_opl2lite_alignof()) };
+        assert!(size > 1024, "opl2_chip came back as {size} bytes");
+        assert!(align <= align_of::<u64>(), "{align}");
+    }
+
+    #[cfg(feature = "opll")]
+    #[test]
+    fn the_opll_shim_reports_a_real_size() {
+        // SAFETY: both return compile-time constants.
         let (size, align) = unsafe { (vgms_opll_sizeof(), vgms_opll_alignof()) };
         assert!(size > 128, "opll_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
+    }
 
-        // SAFETY: as above.
+    #[cfg(feature = "psg")]
+    #[test]
+    fn the_psg_shim_reports_a_real_size() {
+        // SAFETY: both return compile-time constants.
         let (size, align) = unsafe { (vgms_ympsg_sizeof(), vgms_ympsg_alignof()) };
         assert!(size > 64, "ympsg_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
+    }
 
-        // SAFETY: as above.
+    #[cfg(feature = "lle")]
+    #[test]
+    fn the_lle_shims_report_a_real_size() {
+        // SAFETY: both return compile-time constants.
         let (size, align) = unsafe { (vgms_fmopm_sizeof(), vgms_fmopm_alignof()) };
         assert!(size > 1024, "fmopm_t came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
@@ -947,11 +1010,6 @@ mod tests {
         // SAFETY: as above.
         let (size, align) = unsafe { (vgms_fmopl3_sizeof(), vgms_fmopl3_alignof()) };
         assert!(size > 1024, "fmopl3_t came back as {size} bytes");
-        assert!(align <= align_of::<u64>(), "{align}");
-
-        // SAFETY: as above.
-        let (size, align) = unsafe { (vgms_opl2lite_sizeof(), vgms_opl2lite_alignof()) };
-        assert!(size > 1024, "opl2_chip came back as {size} bytes");
         assert!(align <= align_of::<u64>(), "{align}");
 
         // SAFETY: as above.
