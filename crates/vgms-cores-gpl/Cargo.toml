@@ -14,8 +14,10 @@ repository.workspace = true
 [features]
 # Nuked-OPL2-Lite is always built. The other cores are on by default, and each
 # group is a feature, so a consumer that needs only an OPL2 model (an OPL-only
-# web player) takes `default-features = false`: its build then compiles one C
-# file, needs one submodule, and links none of the die simulations.
+# web player) takes `default-features = false`: its build then compiles one
+# upstream C file, needs one submodule, and links none of the die simulations.
+# (`vgms-synth` keeps its own default `nuked-opl`, so Nuked-OPL3 stays the
+# OPL default beside it.)
 default = ["opll", "psg", "lle"]
 # Nuked-OPLL (YM2413).
 opll = []

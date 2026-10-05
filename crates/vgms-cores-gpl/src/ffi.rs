@@ -47,7 +47,7 @@ unsafe extern "C" {
 
 #[cfg(feature = "lle")]
 unsafe extern "C" {
-    // Ours (shim/lle_*.c).
+    // Ours (shim/lle_*.c), and the upstream dies' own clock functions.
     fn vgms_fmopm_sizeof() -> usize;
     fn vgms_fmopm_alignof() -> usize;
     fn vgms_fmopm_set_pins(

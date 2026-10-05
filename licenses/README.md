@@ -32,7 +32,7 @@ crates that the *app* depends on, so the permissive half stays permissive:
 | Provider crate | License | Holds |
 |---|---|---|
 | `vgms-cores-nuked` | `LGPL-2.1-or-later` | Nuked-family cores (CQM, OPN2, OPM, …) |
-| `vgms-cores-gpl` | `GPL-2.0-or-later` | GPL-2 cores (OPLL, PSG, the LLE tier) |
+| `vgms-cores-gpl` | `GPL-2.0-or-later` | GPL-2 cores (OPL2-Lite; OPLL, PSG and the LLE tier behind default features) |
 | `vgms-cores-libvgm` | `GPL-2.0-or-later` (assumed) | libvgm's device cores for every non-OPL chip |
 
 **libvgm ships no explicit licence grant.** Its source carries no per-file
