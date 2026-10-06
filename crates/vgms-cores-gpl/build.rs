@@ -2,110 +2,162 @@
 //!
 //! Separate from `vgms-cores-nuked` only because these upstreams are GPL and
 //! that crate's are LGPL, so the distinction survives into the metadata.
+//!
+//! Each core is a crate feature, and only the enabled cores are compiled, so
+//! a build needs only their submodules. With no core enabled this compiles
+//! nothing and `lib.rs` stops the build with a `compile_error!`.
 
 use std::path::{Path, PathBuf};
 
 /// Where the submodules live, relative to the workspace root.
 const UPSTREAM: &str = "../../vendor/upstream";
 
+/// One core: its feature (as Cargo spells it in the environment), its
+/// submodule, the upstream files to compile, the files to watch, the shim
+/// files, and the define that `shim/layout.c` reads.
+struct Core {
+    feature: &'static str,
+    submodule: &'static str,
+    sources: &'static [&'static str],
+    watch: &'static [&'static str],
+    shims: &'static [&'static str],
+    define: Option<&'static str>,
+}
+
+/// The OPN-family dies of YM2608-LLE: one implementation compiled per chip
+/// macro. The 2612 and 2608 dies are wrapped; the 2610 configuration does not
+/// compile upstream (unguarded 2608-only GPIO writes at the pin), so it waits.
+const OPNA_FILES: &[&str] = &[
+    "fmopna_2612.c",
+    "fmopna_2612.h",
+    "fmopna_2608.c",
+    "fmopna_2608.h",
+    "fmopna_impl.c",
+    "fmopna_impl.h",
+    "fmopna_rom.h",
+];
+
+const CORES: &[Core] = &[
+    Core {
+        feature: "OPL2_LITE",
+        submodule: "nuked-opl2-lite",
+        sources: &["opl2.c"],
+        watch: &["opl2.c", "opl2.h"],
+        shims: &[],
+        define: Some("VGMS_CORE_OPL2_LITE"),
+    },
+    Core {
+        feature: "OPLL",
+        submodule: "nuked-opll",
+        sources: &["opll.c"],
+        watch: &["opll.c", "opll.h"],
+        shims: &[],
+        define: Some("VGMS_CORE_OPLL"),
+    },
+    Core {
+        feature: "PSG",
+        submodule: "nuked-psg",
+        sources: &["ympsg.c"],
+        watch: &["ympsg.c", "ympsg.h"],
+        shims: &[],
+        define: Some("VGMS_CORE_PSG"),
+    },
+    Core {
+        feature: "YM2151_LLE",
+        submodule: "ym2151-lle",
+        sources: &["fmopm.c"],
+        watch: &["fmopm.c", "fmopm.h"],
+        shims: &["shim/lle_opm.c"],
+        define: None,
+    },
+    Core {
+        feature: "YM2203_LLE",
+        submodule: "ym2203-lle",
+        sources: &["fmopn.c"],
+        watch: &["fmopn.c", "fmopn.h"],
+        shims: &["shim/lle_opn.c"],
+        define: None,
+    },
+    Core {
+        feature: "YM2608_LLE",
+        submodule: "ym2608-lle",
+        sources: &["fmopna_2608.c"],
+        watch: OPNA_FILES,
+        shims: &["shim/lle_opna.c"],
+        define: None,
+    },
+    Core {
+        feature: "YM2612_LLE",
+        submodule: "ym2608-lle",
+        sources: &["fmopna_2612.c"],
+        watch: OPNA_FILES,
+        shims: &["shim/lle_opn2.c"],
+        define: None,
+    },
+    Core {
+        feature: "YMF276_LLE",
+        submodule: "ymf276-lle",
+        sources: &["fmopn2.c"],
+        watch: &["fmopn2.c", "fmopn2.h"],
+        shims: &["shim/lle_opn2l.c"],
+        define: None,
+    },
+    Core {
+        feature: "YM3812_LLE",
+        submodule: "ym3812-lle",
+        sources: &["fmopl2.c"],
+        watch: &["fmopl2.c", "fmopl2.h"],
+        shims: &["shim/lle_opl2.c"],
+        define: None,
+    },
+    Core {
+        feature: "YMF262_LLE",
+        submodule: "ymf262-lle",
+        sources: &["fmopl3.c"],
+        watch: &["fmopl3.c", "fmopl3.h"],
+        shims: &["shim/lle_opl3.c"],
+        define: None,
+    },
+];
+
 fn main() {
     println!("cargo::rerun-if-changed=shim");
     println!("cargo::rerun-if-changed=build.rs");
 
-    let opll = PathBuf::from(UPSTREAM).join("nuked-opll");
-    require_submodule(&opll, "nuked-opll", "opll.c");
-    for file in ["opll.c", "opll.h"] {
-        println!("cargo::rerun-if-changed={}", opll.join(file).display());
-    }
-
-    let psg = PathBuf::from(UPSTREAM).join("nuked-psg");
-    require_submodule(&psg, "nuked-psg", "ympsg.c");
-    for file in ["ympsg.c", "ympsg.h"] {
-        println!("cargo::rerun-if-changed={}", psg.join(file).display());
-    }
-
-    let opm_lle = PathBuf::from(UPSTREAM).join("ym2151-lle");
-    require_submodule(&opm_lle, "ym2151-lle", "fmopm.c");
-    for file in ["fmopm.c", "fmopm.h"] {
-        println!("cargo::rerun-if-changed={}", opm_lle.join(file).display());
-    }
-
-    let opl2_lite = PathBuf::from(UPSTREAM).join("nuked-opl2-lite");
-    require_submodule(&opl2_lite, "nuked-opl2-lite", "opl2.c");
-    for file in ["opl2.c", "opl2.h"] {
-        println!("cargo::rerun-if-changed={}", opl2_lite.join(file).display());
-    }
-
-    let opl2_lle = PathBuf::from(UPSTREAM).join("ym3812-lle");
-    require_submodule(&opl2_lle, "ym3812-lle", "fmopl2.c");
-    for file in ["fmopl2.c", "fmopl2.h"] {
-        println!("cargo::rerun-if-changed={}", opl2_lle.join(file).display());
-    }
-
-    let opl3_lle = PathBuf::from(UPSTREAM).join("ymf262-lle");
-    require_submodule(&opl3_lle, "ymf262-lle", "fmopl3.c");
-    for file in ["fmopl3.c", "fmopl3.h"] {
-        println!("cargo::rerun-if-changed={}", opl3_lle.join(file).display());
-    }
-
-    let opn_lle = PathBuf::from(UPSTREAM).join("ym2203-lle");
-    require_submodule(&opn_lle, "ym2203-lle", "fmopn.c");
-    for file in ["fmopn.c", "fmopn.h"] {
-        println!("cargo::rerun-if-changed={}", opn_lle.join(file).display());
-    }
-
-    let opn2l_lle = PathBuf::from(UPSTREAM).join("ymf276-lle");
-    require_submodule(&opn2l_lle, "ymf276-lle", "fmopn2.c");
-    for file in ["fmopn2.c", "fmopn2.h"] {
-        println!("cargo::rerun-if-changed={}", opn2l_lle.join(file).display());
-    }
-
-    // The OPN-family dies: one implementation compiled per chip macro. The
-    // 2612 and 2608 dies are wrapped; the 2610 configuration does not compile
-    // upstream (unguarded 2608-only GPIO writes at the pin), so it waits.
-    let opna_lle = PathBuf::from(UPSTREAM).join("ym2608-lle");
-    require_submodule(&opna_lle, "ym2608-lle", "fmopna_2612.c");
-    for file in [
-        "fmopna_2612.c",
-        "fmopna_2612.h",
-        "fmopna_2608.c",
-        "fmopna_2608.h",
-        "fmopna_impl.c",
-        "fmopna_impl.h",
-        "fmopna_rom.h",
-    ] {
-        println!("cargo::rerun-if-changed={}", opna_lle.join(file).display());
+    let enabled: Vec<&Core> = CORES
+        .iter()
+        .filter(|core| std::env::var_os(format!("CARGO_FEATURE_{}", core.feature)).is_some())
+        .collect();
+    if enabled.is_empty() {
+        // `lib.rs` says what to do; there is nothing to compile.
+        return;
     }
 
     let mut build = cc::Build::new();
+    let mut included = Vec::new();
+    for core in enabled {
+        let dir = PathBuf::from(UPSTREAM).join(core.submodule);
+        require_submodule(&dir, core.submodule, core.sources[0]);
+        for file in core.watch {
+            println!("cargo::rerun-if-changed={}", dir.join(file).display());
+        }
+        for source in core.sources {
+            build.file(dir.join(source));
+        }
+        for shim in core.shims {
+            build.file(shim);
+        }
+        if !included.contains(&dir) {
+            build.include(&dir);
+            included.push(dir);
+        }
+        if let Some(define) = core.define {
+            build.define(define, None);
+        }
+    }
+
     build
-        .file(opll.join("opll.c"))
-        .file(psg.join("ympsg.c"))
-        .file(opm_lle.join("fmopm.c"))
-        .file(opl2_lite.join("opl2.c"))
-        .file(opl2_lle.join("fmopl2.c"))
-        .file(opl3_lle.join("fmopl3.c"))
-        .file(opn_lle.join("fmopn.c"))
-        .file(opn2l_lle.join("fmopn2.c"))
-        .file(opna_lle.join("fmopna_2612.c"))
-        .file(opna_lle.join("fmopna_2608.c"))
         .file("shim/layout.c")
-        .file("shim/lle_opm.c")
-        .file("shim/lle_opl2.c")
-        .file("shim/lle_opl3.c")
-        .file("shim/lle_opn.c")
-        .file("shim/lle_opn2.c")
-        .file("shim/lle_opn2l.c")
-        .file("shim/lle_opna.c")
-        .include(&opll)
-        .include(&psg)
-        .include(&opm_lle)
-        .include(&opl2_lite)
-        .include(&opl2_lle)
-        .include(&opl3_lle)
-        .include(&opn_lle)
-        .include(&opn2l_lle)
-        .include(&opna_lle)
         // Ahead of the upstream's own directory, so the freestanding
         // <string.h> wins over a host one that may not exist.
         .include("shim")

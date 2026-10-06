@@ -13,6 +13,7 @@
 //! OPL3-family document produces) are dropped rather than aliased onto bank 0
 //! -- a real OPL2 has no `A1` pin to see them with.
 
+use vgms_core::vgm::ChipKind;
 use vgms_synth::OplChip;
 
 use crate::ffi::Opl2LiteChip;
@@ -20,6 +21,11 @@ use crate::ffi::Opl2LiteChip;
 /// The registry id: the OPL family shares the `opl3` slot, so this names the
 /// core within it.
 pub(crate) const CORE_ID: &str = "opl3.opl2-lite";
+
+/// The chips this core serves: the YM3812 and its register-compatible
+/// family, as the YM3812 die does. The YMF262 is *not* here: an OPL3 song
+/// needs the second register bank an OPL2 lacks.
+pub(crate) const CHIPS: [ChipKind; 3] = [ChipKind::Ym3812, ChipKind::Ym3526, ChipKind::Y8950];
 
 /// Nuked-OPL2-Lite, wrapped.
 #[derive(Debug)]
