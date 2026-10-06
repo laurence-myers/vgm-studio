@@ -12,19 +12,28 @@ authors.workspace = true
 repository.workspace = true
 
 [features]
-# Nuked-OPL2-Lite is always built. The other cores are on by default, and each
-# group is a feature, so a consumer that needs only an OPL2 model (an OPL-only
-# web player) takes `default-features = false`: its build then compiles one
-# upstream C file, needs one submodule, and links none of the die simulations.
-# (`vgms-synth` keeps its own default `nuked-opl`, so Nuked-OPL3 stays the
-# OPL default beside it.)
-default = ["opll", "psg", "lle"]
-# Nuked-OPLL (YM2413).
+# One feature for each core; the default builds them all. A consumer that
+# wants fewer takes `default-features = false` and names its cores, e.g.
+# `features = ["opl2-lite"]` for an OPL-only web player: the build then
+# compiles only those cores' C and needs only their submodules. A build with
+# no core is an error. (`vgms-synth` keeps its own default `nuked-opl`, so
+# Nuked-OPL3 stays the OPL default beside these.)
+default = ["opl2-lite", "opll", "psg", "lle"]
+# Nuked-OPL2-Lite: a behavioural YM3812 (YM3526, Y8950).
+opl2-lite = []
+# Nuked-OPLL: YM2413 (and VRC VII).
 opll = []
-# Nuked-PSG (SN76489, the Sega VDP part).
+# Nuked-PSG: SN76489, the Sega VDP part.
 psg = []
-# The die simulations: YM2151, YM2203, YM2608, YM2612, YMF276, YM3812, YMF262.
-lle = []
+# The die simulations, each its own feature, and `lle` for all of them.
+lle = ["ym2151-lle", "ym2203-lle", "ym2608-lle", "ym2612-lle", "ymf276-lle", "ym3812-lle", "ymf262-lle"]
+ym2151-lle = []
+ym2203-lle = []
+ym2608-lle = []
+ym2612-lle = []
+ymf276-lle = []
+ym3812-lle = []
+ymf262-lle = []
 
 [dependencies]
 vgms-core.workspace = true

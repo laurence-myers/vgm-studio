@@ -8,45 +8,67 @@
 //! compiled unmodified, with glue in `shim/` and no upstream struct mirrored.
 //! See `crates/vgms-synth/PROVENANCE.md` and `licenses/README.md`.
 //!
-//! Nuked-OPL2-Lite is always built. The other cores are behind the default
-//! features `opll`, `psg` and `lle`; `default-features = false` leaves only
-//! the OPL2-Lite, for a player that needs nothing else.
+//! Each core is a feature: `opl2-lite`, `opll`, `psg`, and the die
+//! simulations `ym2151-lle`, `ym2203-lle`, `ym2608-lle`, `ym2612-lle`,
+//! `ymf276-lle`, `ym3812-lle` and `ymf262-lle` (`lle` for all seven). The
+//! default builds every core. A consumer that wants fewer takes
+//! `default-features = false` and names them; a build with none is an error.
+
+#[cfg(not(any(
+    feature = "opl2-lite",
+    feature = "opll",
+    feature = "psg",
+    feature = "ym2151-lle",
+    feature = "ym2203-lle",
+    feature = "ym2608-lle",
+    feature = "ym2612-lle",
+    feature = "ymf276-lle",
+    feature = "ym3812-lle",
+    feature = "ymf262-lle",
+)))]
+compile_error!(
+    "vgms-cores-gpl builds no core: enable at least one core feature (opl2-lite, opll, psg, ym2151-lle, \
+     ym2203-lle, ym2608-lle, ym2612-lle, ymf276-lle, ym3812-lle, ymf262-lle, or lle for all the die \
+     simulations), or keep the default features"
+);
 
 mod ffi;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym3812-lle")]
 mod lle_opl2;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ymf262-lle")]
 mod lle_opl3;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym2151-lle")]
 mod lle_opm;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym2203-lle")]
 mod lle_opn;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym2612-lle")]
 mod lle_opn2;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ymf276-lle")]
 mod lle_opn2l;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym2608-lle")]
 mod lle_opna;
+#[cfg(feature = "opl2-lite")]
 mod opl2_lite;
 #[cfg(feature = "opll")]
 mod opll;
 #[cfg(feature = "psg")]
 mod psg;
 
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym3812-lle")]
 pub use lle_opl2::Ym3812Lle;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ymf262-lle")]
 pub use lle_opl3::Ymf262Lle;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym2151-lle")]
 pub use lle_opm::Ym2151Lle;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym2203-lle")]
 pub use lle_opn::Ym2203Lle;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym2612-lle")]
 pub use lle_opn2::Ym2612Lle;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ymf276-lle")]
 pub use lle_opn2l::Ymf276Lle;
-#[cfg(feature = "lle")]
+#[cfg(feature = "ym2608-lle")]
 pub use lle_opna::Ym2608Lle;
+#[cfg(feature = "opl2-lite")]
 pub use opl2_lite::Opl2Lite;
 #[cfg(feature = "opll")]
 pub use opll::Ym2413;
@@ -63,11 +85,18 @@ pub fn register(registry: &mut vgms_synth::CoreRegistry) {
     register_opll(registry);
     #[cfg(feature = "psg")]
     register_psg(registry);
-    #[cfg(feature = "lle")]
+    #[cfg(any(
+        feature = "ym2151-lle",
+        feature = "ym2612-lle",
+        feature = "ym2608-lle",
+        feature = "ym2203-lle",
+        feature = "ymf276-lle",
+    ))]
     register_lle_non_opl(registry);
     // Realtime before the die tier, so the OPL2 picker reads fast-to-slow.
+    #[cfg(feature = "opl2-lite")]
     register_opl2_lite(registry);
-    #[cfg(feature = "lle")]
+    #[cfg(any(feature = "ym3812-lle", feature = "ymf262-lle"))]
     register_lle_opl(registry);
 }
 
@@ -123,8 +152,15 @@ fn register_psg(registry: &mut vgms_synth::CoreRegistry) {
 }
 
 /// The die simulations of the chips outside the OPL family.
-#[cfg(feature = "lle")]
+#[cfg(any(
+    feature = "ym2151-lle",
+    feature = "ym2612-lle",
+    feature = "ym2608-lle",
+    feature = "ym2203-lle",
+    feature = "ymf276-lle",
+))]
 fn register_lle_non_opl(registry: &mut vgms_synth::CoreRegistry) {
+    #[cfg(feature = "ym2151-lle")]
     for chip in lle_opm::CHIPS {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opm::CORE_ID,
@@ -143,6 +179,7 @@ fn register_lle_non_opl(registry: &mut vgms_synth::CoreRegistry) {
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2151Lle::new())),
         });
     }
+    #[cfg(feature = "ym2612-lle")]
     for chip in lle_opn2::CHIPS {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opn2::CORE_ID,
@@ -161,6 +198,7 @@ fn register_lle_non_opl(registry: &mut vgms_synth::CoreRegistry) {
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2612Lle::new())),
         });
     }
+    #[cfg(feature = "ym2608-lle")]
     for chip in lle_opna::CHIPS {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opna::CORE_ID,
@@ -179,6 +217,7 @@ fn register_lle_non_opl(registry: &mut vgms_synth::CoreRegistry) {
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2608Lle::new())),
         });
     }
+    #[cfg(feature = "ym2203-lle")]
     for chip in lle_opn::CHIPS {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opn::CORE_ID,
@@ -202,6 +241,7 @@ fn register_lle_non_opl(registry: &mut vgms_synth::CoreRegistry) {
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym2203Lle::new())),
         });
     }
+    #[cfg(feature = "ymf276-lle")]
     for chip in lle_opn2l::CHIPS {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opn2l::CORE_ID,
@@ -231,6 +271,7 @@ fn register_lle_non_opl(registry: &mut vgms_synth::CoreRegistry) {
     }
 }
 
+#[cfg(feature = "opl2-lite")]
 fn register_opl2_lite(registry: &mut vgms_synth::CoreRegistry) {
     for chip in opl2_lite::CHIPS {
         registry.register(vgms_synth::CoreInfo {
@@ -257,8 +298,9 @@ fn register_opl2_lite(registry: &mut vgms_synth::CoreRegistry) {
 }
 
 /// The OPL2 and OPL3 dies, after the OPL2-Lite.
-#[cfg(feature = "lle")]
+#[cfg(any(feature = "ym3812-lle", feature = "ymf262-lle"))]
 fn register_lle_opl(registry: &mut vgms_synth::CoreRegistry) {
+    #[cfg(feature = "ym3812-lle")]
     for chip in lle_opl2::CHIPS {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opl2::CORE_ID,
@@ -285,6 +327,7 @@ fn register_lle_opl(registry: &mut vgms_synth::CoreRegistry) {
             make: vgms_synth::CoreMaker::Generic(|| Box::new(Ym3812Lle::new())),
         });
     }
+    #[cfg(feature = "ymf262-lle")]
     for chip in lle_opl3::CHIPS {
         registry.register(vgms_synth::CoreInfo {
             id: lle_opl3::CORE_ID,
@@ -334,7 +377,7 @@ mod tests {
     /// this row is offered for the OPL2-generation chips only -- an OPL3 song
     /// needs the second register bank the die lacks, so the YMF262 must not
     /// list it.
-    #[cfg(feature = "lle")]
+    #[cfg(feature = "ym3812-lle")]
     #[test]
     fn the_opl2_die_is_offered_for_its_generation_only() {
         let mut registry = vgms_synth::CoreRegistry::with_builtins();
@@ -365,7 +408,7 @@ mod tests {
 
     /// The OPL3 die serves the whole family (an OPL2 song on OPL3 silicon is
     /// the SB16 experience), as an alternative behind the modelled default.
-    #[cfg(feature = "lle")]
+    #[cfg(feature = "ymf262-lle")]
     #[test]
     fn the_opl3_die_is_offered_for_the_whole_family_behind_the_default() {
         let mut registry = vgms_synth::CoreRegistry::with_builtins();
@@ -397,7 +440,12 @@ mod tests {
     /// alternatives behind their chips' defaults, and Nuked-OPL2-Lite as the
     /// OPL2 generation's *realtime* authenticity option -- listed ahead of
     /// the die tier so its picker reads fast-to-slow.
-    #[cfg(feature = "lle")]
+    #[cfg(all(
+        feature = "ym2203-lle",
+        feature = "ymf276-lle",
+        feature = "ym3812-lle",
+        feature = "opl2-lite"
+    ))]
     #[test]
     fn the_opn_dies_and_the_opl2_lite_are_offered() {
         let mut registry = vgms_synth::CoreRegistry::with_builtins();
@@ -442,11 +490,11 @@ mod tests {
         );
     }
 
-    /// Nuked-OPL2-Lite is in every build, `default-features = false` too: it
-    /// serves the OPL2 generation as an alternative behind the built-in
-    /// Nuked-OPL3, and not the YMF262.
+    /// Nuked-OPL2-Lite, alone or with the others, serves the OPL2 generation
+    /// as an alternative behind the built-in Nuked-OPL3, and not the YMF262.
+    #[cfg(feature = "opl2-lite")]
     #[test]
-    fn the_opl2_lite_is_offered_in_every_build() {
+    fn the_opl2_lite_is_offered_for_the_opl2_generation() {
         let mut registry = vgms_synth::CoreRegistry::with_builtins();
         super::register(&mut registry);
 
@@ -469,6 +517,47 @@ mod tests {
                 .any(|info| info.id == super::opl2_lite::CORE_ID),
             "an OPL3 song cannot play through an OPL2 model"
         );
+    }
+
+    /// Each core the features build reaches the registry for its chip, with
+    /// its licence -- whatever the set of features.
+    #[test]
+    // Each push is behind its core's feature, which a `vec![]` cannot say.
+    #[allow(clippy::vec_init_then_push)]
+    fn every_enabled_core_registers() {
+        let mut registry = vgms_synth::CoreRegistry::with_builtins();
+        super::register(&mut registry);
+
+        let mut expected: Vec<(&str, ChipKind)> = Vec::new();
+        #[cfg(feature = "opl2-lite")]
+        expected.push((super::opl2_lite::CORE_ID, ChipKind::Ym3812));
+        #[cfg(feature = "opll")]
+        expected.push((super::opll::CORE_ID, ChipKind::Ym2413));
+        #[cfg(feature = "psg")]
+        expected.push((super::psg::CORE_ID, ChipKind::Sn76489));
+        #[cfg(feature = "ym2151-lle")]
+        expected.push((super::lle_opm::CORE_ID, ChipKind::Ym2151));
+        #[cfg(feature = "ym2203-lle")]
+        expected.push((super::lle_opn::CORE_ID, ChipKind::Ym2203));
+        #[cfg(feature = "ym2608-lle")]
+        expected.push((super::lle_opna::CORE_ID, ChipKind::Ym2608));
+        #[cfg(feature = "ym2612-lle")]
+        expected.push((super::lle_opn2::CORE_ID, ChipKind::Ym2612));
+        #[cfg(feature = "ymf276-lle")]
+        expected.push((super::lle_opn2l::CORE_ID, ChipKind::Ym2612));
+        #[cfg(feature = "ym3812-lle")]
+        expected.push((super::lle_opl2::CORE_ID, ChipKind::Ym3812));
+        #[cfg(feature = "ymf262-lle")]
+        expected.push((super::lle_opl3::CORE_ID, ChipKind::Ymf262));
+
+        assert!(!expected.is_empty(), "a build has at least one core");
+        for (id, chip) in expected {
+            let info = registry
+                .for_chip(chip)
+                .find(|info| info.id == id)
+                .unwrap_or_else(|| panic!("{id} is not offered for the {}", chip.name()));
+            assert_eq!(info.license, "GPL-2.0-or-later", "{id}");
+        }
     }
 
     /// Nuked-PSG is a picker *alternative*: in the app, libvgm registers first

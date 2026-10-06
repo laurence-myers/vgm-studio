@@ -31,7 +31,9 @@ size_t vgms_ympsg_sizeof(void) { return sizeof(ympsg_t); }
 size_t vgms_ympsg_alignof(void) { return VGMSTUDIO_ALIGNOF(ympsg_t); }
 #endif
 
+#ifdef VGMS_CORE_OPL2_LITE
 #include "opl2.h"
 
 size_t vgms_opl2lite_sizeof(void) { return sizeof(opl2_chip); }
 size_t vgms_opl2lite_alignof(void) { return VGMSTUDIO_ALIGNOF(opl2_chip); }
+#endif

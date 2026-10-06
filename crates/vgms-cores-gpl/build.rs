@@ -3,85 +3,157 @@
 //! Separate from `vgms-cores-nuked` only because these upstreams are GPL and
 //! that crate's are LGPL, so the distinction survives into the metadata.
 //!
-//! Nuked-OPL2-Lite is always compiled; the other cores follow the crate's
-//! features (`opll`, `psg`, `lle`), so an OPL2-only build needs only the
-//! `nuked-opl2-lite` submodule.
+//! Each core is a crate feature, and only the enabled cores are compiled, so
+//! a build needs only their submodules. With no core enabled this compiles
+//! nothing and `lib.rs` stops the build with a `compile_error!`.
 
 use std::path::{Path, PathBuf};
 
 /// Where the submodules live, relative to the workspace root.
 const UPSTREAM: &str = "../../vendor/upstream";
 
+/// One core: its feature (as Cargo spells it in the environment), its
+/// submodule, the upstream files to compile, the files to watch, the shim
+/// files, and the define that `shim/layout.c` reads.
+struct Core {
+    feature: &'static str,
+    submodule: &'static str,
+    sources: &'static [&'static str],
+    watch: &'static [&'static str],
+    shims: &'static [&'static str],
+    define: Option<&'static str>,
+}
+
+/// The OPN-family dies of YM2608-LLE: one implementation compiled per chip
+/// macro. The 2612 and 2608 dies are wrapped; the 2610 configuration does not
+/// compile upstream (unguarded 2608-only GPIO writes at the pin), so it waits.
+const OPNA_FILES: &[&str] = &[
+    "fmopna_2612.c",
+    "fmopna_2612.h",
+    "fmopna_2608.c",
+    "fmopna_2608.h",
+    "fmopna_impl.c",
+    "fmopna_impl.h",
+    "fmopna_rom.h",
+];
+
+const CORES: &[Core] = &[
+    Core {
+        feature: "OPL2_LITE",
+        submodule: "nuked-opl2-lite",
+        sources: &["opl2.c"],
+        watch: &["opl2.c", "opl2.h"],
+        shims: &[],
+        define: Some("VGMS_CORE_OPL2_LITE"),
+    },
+    Core {
+        feature: "OPLL",
+        submodule: "nuked-opll",
+        sources: &["opll.c"],
+        watch: &["opll.c", "opll.h"],
+        shims: &[],
+        define: Some("VGMS_CORE_OPLL"),
+    },
+    Core {
+        feature: "PSG",
+        submodule: "nuked-psg",
+        sources: &["ympsg.c"],
+        watch: &["ympsg.c", "ympsg.h"],
+        shims: &[],
+        define: Some("VGMS_CORE_PSG"),
+    },
+    Core {
+        feature: "YM2151_LLE",
+        submodule: "ym2151-lle",
+        sources: &["fmopm.c"],
+        watch: &["fmopm.c", "fmopm.h"],
+        shims: &["shim/lle_opm.c"],
+        define: None,
+    },
+    Core {
+        feature: "YM2203_LLE",
+        submodule: "ym2203-lle",
+        sources: &["fmopn.c"],
+        watch: &["fmopn.c", "fmopn.h"],
+        shims: &["shim/lle_opn.c"],
+        define: None,
+    },
+    Core {
+        feature: "YM2608_LLE",
+        submodule: "ym2608-lle",
+        sources: &["fmopna_2608.c"],
+        watch: OPNA_FILES,
+        shims: &["shim/lle_opna.c"],
+        define: None,
+    },
+    Core {
+        feature: "YM2612_LLE",
+        submodule: "ym2608-lle",
+        sources: &["fmopna_2612.c"],
+        watch: OPNA_FILES,
+        shims: &["shim/lle_opn2.c"],
+        define: None,
+    },
+    Core {
+        feature: "YMF276_LLE",
+        submodule: "ymf276-lle",
+        sources: &["fmopn2.c"],
+        watch: &["fmopn2.c", "fmopn2.h"],
+        shims: &["shim/lle_opn2l.c"],
+        define: None,
+    },
+    Core {
+        feature: "YM3812_LLE",
+        submodule: "ym3812-lle",
+        sources: &["fmopl2.c"],
+        watch: &["fmopl2.c", "fmopl2.h"],
+        shims: &["shim/lle_opl2.c"],
+        define: None,
+    },
+    Core {
+        feature: "YMF262_LLE",
+        submodule: "ymf262-lle",
+        sources: &["fmopl3.c"],
+        watch: &["fmopl3.c", "fmopl3.h"],
+        shims: &["shim/lle_opl3.c"],
+        define: None,
+    },
+];
+
 fn main() {
     println!("cargo::rerun-if-changed=shim");
     println!("cargo::rerun-if-changed=build.rs");
 
+    let enabled: Vec<&Core> = CORES
+        .iter()
+        .filter(|core| std::env::var_os(format!("CARGO_FEATURE_{}", core.feature)).is_some())
+        .collect();
+    if enabled.is_empty() {
+        // `lib.rs` says what to do; there is nothing to compile.
+        return;
+    }
+
     let mut build = cc::Build::new();
-
-    let opl2_lite = upstream("nuked-opl2-lite", "opl2.c", &["opl2.c", "opl2.h"]);
-    build.file(opl2_lite.join("opl2.c")).include(&opl2_lite);
-
-    if feature("OPLL") {
-        let opll = upstream("nuked-opll", "opll.c", &["opll.c", "opll.h"]);
-        build
-            .file(opll.join("opll.c"))
-            .include(&opll)
-            .define("VGMS_CORE_OPLL", None);
-    }
-
-    if feature("PSG") {
-        let psg = upstream("nuked-psg", "ympsg.c", &["ympsg.c", "ympsg.h"]);
-        build
-            .file(psg.join("ympsg.c"))
-            .include(&psg)
-            .define("VGMS_CORE_PSG", None);
-    }
-
-    if feature("LLE") {
-        let opm_lle = upstream("ym2151-lle", "fmopm.c", &["fmopm.c", "fmopm.h"]);
-        let opl2_lle = upstream("ym3812-lle", "fmopl2.c", &["fmopl2.c", "fmopl2.h"]);
-        let opl3_lle = upstream("ymf262-lle", "fmopl3.c", &["fmopl3.c", "fmopl3.h"]);
-        let opn_lle = upstream("ym2203-lle", "fmopn.c", &["fmopn.c", "fmopn.h"]);
-        let opn2l_lle = upstream("ymf276-lle", "fmopn2.c", &["fmopn2.c", "fmopn2.h"]);
-        // The OPN-family dies: one implementation compiled per chip macro. The
-        // 2612 and 2608 dies are wrapped; the 2610 configuration does not
-        // compile upstream (unguarded 2608-only GPIO writes at the pin), so it
-        // waits.
-        let opna_lle = upstream(
-            "ym2608-lle",
-            "fmopna_2612.c",
-            &[
-                "fmopna_2612.c",
-                "fmopna_2612.h",
-                "fmopna_2608.c",
-                "fmopna_2608.h",
-                "fmopna_impl.c",
-                "fmopna_impl.h",
-                "fmopna_rom.h",
-            ],
-        );
-
-        build
-            .file(opm_lle.join("fmopm.c"))
-            .file(opl2_lle.join("fmopl2.c"))
-            .file(opl3_lle.join("fmopl3.c"))
-            .file(opn_lle.join("fmopn.c"))
-            .file(opn2l_lle.join("fmopn2.c"))
-            .file(opna_lle.join("fmopna_2612.c"))
-            .file(opna_lle.join("fmopna_2608.c"))
-            .file("shim/lle_opm.c")
-            .file("shim/lle_opl2.c")
-            .file("shim/lle_opl3.c")
-            .file("shim/lle_opn.c")
-            .file("shim/lle_opn2.c")
-            .file("shim/lle_opn2l.c")
-            .file("shim/lle_opna.c")
-            .include(&opm_lle)
-            .include(&opl2_lle)
-            .include(&opl3_lle)
-            .include(&opn_lle)
-            .include(&opn2l_lle)
-            .include(&opna_lle);
+    let mut included = Vec::new();
+    for core in enabled {
+        let dir = PathBuf::from(UPSTREAM).join(core.submodule);
+        require_submodule(&dir, core.submodule, core.sources[0]);
+        for file in core.watch {
+            println!("cargo::rerun-if-changed={}", dir.join(file).display());
+        }
+        for source in core.sources {
+            build.file(dir.join(source));
+        }
+        for shim in core.shims {
+            build.file(shim);
+        }
+        if !included.contains(&dir) {
+            build.include(&dir);
+            included.push(dir);
+        }
+        if let Some(define) = core.define {
+            build.define(define, None);
+        }
     }
 
     build
@@ -104,23 +176,6 @@ fn main() {
     }
 
     build.compile("gpl_cores");
-}
-
-/// Whether the crate feature `name` (upper case, as Cargo spells it in the
-/// environment) is on.
-fn feature(name: &str) -> bool {
-    std::env::var_os(format!("CARGO_FEATURE_{name}")).is_some()
-}
-
-/// The directory of submodule `name`, checked for `marker` and watched for
-/// changes to `files`.
-fn upstream(name: &str, marker: &str, files: &[&str]) -> PathBuf {
-    let path = PathBuf::from(UPSTREAM).join(name);
-    require_submodule(&path, name, marker);
-    for file in files {
-        println!("cargo::rerun-if-changed={}", path.join(file).display());
-    }
-    path
 }
 
 /// Fails with an instruction rather than a missing-file error.
